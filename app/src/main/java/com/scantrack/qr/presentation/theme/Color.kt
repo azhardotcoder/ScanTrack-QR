@@ -20,3 +20,12 @@ val TextSecondary = Color(0xFF64748B)
 val BlobBlue = Color(0x334F46E5)
 val BlobGreen = Color(0x3310B981)
 val BlobPurple = Color(0x2B8B5CF6)
+
+// Dark Mode Colors
+// Dark Mode Colors
+val DarkBackground = Color(0xFF030712) // Deeper, more premium dark
+val DarkSurface = Color(0xFF111827)
+val DarkTextPrimary = Color(0xFFF9FAFB)
+val DarkTextSecondary = Color(0xFF9CA3AF)
+val DarkGlassSurface = Color(0x26FFFFFF) // 15% white for better visibility on dark
+val DarkGlassBorder = Color(0x1AFFFFFF)  // Very subtle light border for dark mode

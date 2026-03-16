@@ -43,7 +43,7 @@ fun QrDetailSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color.White,
+        containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(
@@ -92,12 +92,13 @@ fun QrDetailSheet(
                             fontWeight = FontWeight.Bold,
                             fontSize = 22.sp,
                             maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
 
@@ -117,14 +118,14 @@ fun QrDetailSheet(
 
             // Raw value box
             Surface(
-                color = Color(0xFFF1F5F9),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = qr.rawValue,
                     fontSize = 13.sp,
-                    color = Color(0xFF475569),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                     maxLines = 5,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(16.dp)
@@ -142,11 +143,11 @@ fun QrDetailSheet(
                     onClick = { onOpen(qr) },
                     modifier = Modifier.weight(1f).height(54.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(20.dp), tint = Color.White)
                     Spacer(Modifier.width(8.dp))
-                    Text("Open", fontWeight = FontWeight.Bold)
+                    Text("Open", fontWeight = FontWeight.Bold, color = Color.White)
                 }
                 
                 Surface(
@@ -156,10 +157,10 @@ fun QrDetailSheet(
                     },
                     modifier = Modifier.size(54.dp),
                     shape = RoundedCornerShape(14.dp),
-                    color = Color(0xFFF1F5F9)
+                    color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -167,17 +168,17 @@ fun QrDetailSheet(
             Spacer(Modifier.height(16.dp))
 
             // Secondary Actions List
-            Divider(color = Color(0xFFF1F5F9))
+            Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
             
             ActionRow(
                 icon = if (qr.isPinned) Icons.Default.PushPin else Icons.Default.PushPin, // Icons.Default.PushPinOut not available in default
                 label = if (qr.isPinned) "Unpin from top" else "Pin to top",
-                tint = if (qr.isPinned) Color(0xFF2563EB) else Color.Black,
+                tint = if (qr.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 onClick = { onPinToggle(qr) }
             )
-            ActionRow(icon = Icons.Default.Edit, label = "Rename label", onClick = { isRenaming = true })
-            ActionRow(icon = Icons.Default.Share, label = "Share with others", onClick = { ActionUtils.shareText(context, qr.rawValue) })
-            ActionRow(icon = Icons.Default.Delete, label = "Delete forever", tint = Color.Red, onClick = { onDelete(qr) })
+            ActionRow(icon = Icons.Default.Edit, label = "Rename label", tint = MaterialTheme.colorScheme.onSurface, onClick = { isRenaming = true })
+            ActionRow(icon = Icons.Default.Share, label = "Share with others", tint = MaterialTheme.colorScheme.onSurface, onClick = { ActionUtils.shareText(context, qr.rawValue) })
+            ActionRow(icon = Icons.Default.Delete, label = "Delete forever", tint = MaterialTheme.colorScheme.error, onClick = { onDelete(qr) })
         }
     }
 }
@@ -185,8 +186,8 @@ fun QrDetailSheet(
 @Composable
 private fun MetadataItem(label: String, value: String) {
     Column {
-        Text(text = label, fontSize = 11.sp, color = Color.Gray)
-        Text(text = value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+        Text(text = value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

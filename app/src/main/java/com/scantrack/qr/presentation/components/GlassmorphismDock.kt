@@ -1,7 +1,7 @@
 package com.scantrack.qr.presentation.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,23 +12,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.scantrack.qr.presentation.theme.GlassBorder
-import com.scantrack.qr.presentation.theme.GlassSurface
 
 @Composable
 fun GlassmorphismDock(
@@ -41,23 +35,25 @@ fun GlassmorphismDock(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 32.dp, start = 24.dp, end = 24.dp),
+            .padding(bottom = 24.dp), // Adjust bottom padding
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Main Dock Pill
+        // Main Dock Pill - Frosted White, 90% width
         Surface(
             modifier = Modifier
-                .height(72.dp)
-                .fillMaxWidth()
-                .border(1.dp, GlassBorder, RoundedCornerShape(36.dp)),
+                .fillMaxWidth(0.9f)
+                .height(72.dp),
             shape = RoundedCornerShape(36.dp),
-            color = GlassSurface,
-            shadowElevation = 8.dp
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 0.dp,
+            shadowElevation = 8.dp // soft drop shadow
         ) {
             Row(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 32.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceAround
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 DockItem(
                     icon = Icons.Default.History,
@@ -66,7 +62,7 @@ fun GlassmorphismDock(
                     onClick = onHistoryClick
                 )
 
-                Spacer(modifier = Modifier.width(64.dp)) // Middle gap for Scan button
+                Spacer(modifier = Modifier.width(64.dp)) // Gap for the overlapping scan button
 
                 DockItem(
                     icon = Icons.Default.Settings,
@@ -77,29 +73,23 @@ fun GlassmorphismDock(
             }
         }
 
-        // Floating Scan Button (Large & Primary)
+        // Floating Scan Button - Overlaps upwards
         Box(
             modifier = Modifier
-                .offset(y = (-24).dp)
-                .size(80.dp)
+                .offset(y = (-20).dp)
+                .size(64.dp)
+                .shadow(elevation = 12.dp, shape = CircleShape)
                 .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF2563EB),
-                            Color(0xFF1E40AF)
-                        )
-                    )
-                )
+                .background(MaterialTheme.colorScheme.primary) // Use primary blue
                 .clickable { onScanClick() }
-                .border(4.dp, Color.White, CircleShape),
+                .border(2.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.QrCodeScanner,
+                imageVector = Icons.Default.QrCodeScanner, // Using QrCodeScanner to simulate white QR icon
                 contentDescription = "Scan",
                 tint = Color.White,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(28.dp)
             )
         }
     }
@@ -113,17 +103,22 @@ private fun DockItem(
     onClick: () -> Unit
 ) {
     val color by animateColorAsState(
-        targetValue = if (selected) Color(0xFF2563EB) else Color.Black.copy(alpha = 0.7f),
-        animationSpec = tween(300),
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+        animationSpec = tween(400),
         label = "color"
+    )
+
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.15f else 1.0f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "scale"
     )
 
     Column(
         modifier = Modifier
-            .width(80.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
-            .padding(vertical = 8.dp),
+            .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -131,9 +126,9 @@ private fun DockItem(
             imageVector = icon,
             contentDescription = label,
             tint = color,
-            modifier = Modifier.size(if (selected) 28.dp else 24.dp)
+            modifier = Modifier.size(26.dp)
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,

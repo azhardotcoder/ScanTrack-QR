@@ -2,11 +2,14 @@ package com.scantrack.qr.presentation.scanner
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.scantrack.qr.data.local.SettingsManager
 import com.scantrack.qr.data.local.entity.QrEntity
 import com.scantrack.qr.data.repository.QrRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Detects the semantic type of a QR raw value */
@@ -32,13 +35,19 @@ sealed class ScanState {
     data class Error(val message: String) : ScanState()
 }
 
-class ScannerViewModel(private val repository: QrRepository) : ViewModel() {
+class ScannerViewModel(
+    private val repository: QrRepository,
+    private val settingsManager: SettingsManager
+) : ViewModel() {
 
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Scanning)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
 
     private val _isFlashOn = MutableStateFlow(false)
     val isFlashOn: StateFlow<Boolean> = _isFlashOn.asStateFlow()
+
+    val hapticEnabled: StateFlow<Boolean> = settingsManager.hapticEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     /** Throttle: track the last scanned value to avoid duplicates in quick succession */
     private var lastScannedValue: String? = null
@@ -76,6 +85,10 @@ class ScannerViewModel(private val repository: QrRepository) : ViewModel() {
         // Allow the user to scan again after dismissing
         lastScannedValue = null
         _scanState.value = ScanState.Scanning
+    }
+
+    fun onGalleryImageScanned(uri: android.net.Uri) {
+        // Signal can be handled here if we needed to track gallery scans specifically
     }
 
     private fun deriveLabelFromRaw(rawValue: String, type: String): String = when (type) {

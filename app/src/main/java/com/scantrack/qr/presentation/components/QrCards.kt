@@ -1,98 +1,103 @@
 package com.scantrack.qr.presentation.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// --- PINNED QR CARD (Matches Reference Double Entry) ---
 @Composable
-fun PinnedQrGroup(
-    items: List<PinnedItem>,
-    modifier: Modifier = Modifier,
-    onClick: (Int) -> Unit = {}
+fun PinnedQrCard(
+    title: String,
+    iconColor: Color,
+    onClick: () -> Unit = {}
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "scale")
+
     Surface(
-        modifier = modifier.width(180.dp),
-        onClick = { /* Each item inside handles click if needed, or entire group */ },
-        shape = RoundedCornerShape(28.dp),
-        color = Color(0xFFE2E8F0).copy(alpha = 0.6f),
+        onClick = onClick,
+        interactionSource = interactionSource,
+        modifier = Modifier
+            .width(160.dp)
+            .height(56.dp)
+            .graphicsLayer(scaleX = scale, scaleY = scale),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
         tonalElevation = 0.dp
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            items.forEachIndexed { index, item ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onClick(index) }
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(item.iconColor.copy(alpha = 0.8f), RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCode2,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = item.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            maxLines = 1
-                        )
-                        Text(
-                            text = item.subtitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 11.sp,
-                            color = Color.Black.copy(alpha = 0.5f)
-                        )
-                    }
-                }
-                if (index < items.size - 1) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(iconColor, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QrCode2,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                )
             }
         }
     }
 }
 
-data class PinnedItem(val title: String, val subtitle: String, val iconColor: Color)
-
-// --- QUICK ACCESS CARD (Matching Vibrant Colors) ---
 @Composable
 fun QuickAccessCard(
     title: String,
-    subtitle: String,
     backgroundColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "scale")
+
     Surface(
         onClick = onClick,
-        modifier = modifier.height(140.dp),
-        shape = RoundedCornerShape(28.dp),
+        interactionSource = interactionSource,
+        modifier = modifier
+            .height(110.dp)
+            .graphicsLayer(scaleX = scale, scaleY = scale),
+        shape = RoundedCornerShape(18.dp),
         color = backgroundColor,
-        shadowElevation = 0.dp
+        shadowElevation = 4.dp
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Surface(
@@ -114,50 +119,54 @@ fun QuickAccessCard(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 12.sp
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
     }
 }
 
-// --- RECENT SCAN CARD ---
 @Composable
 fun RecentScanCard(
     title: String,
-    subtitle: String,
     time: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.98f else 1f, label = "scale")
+
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = Color(0xFFE2E8F0).copy(alpha = 0.5f)
+        interactionSource = interactionSource,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .graphicsLayer(scaleX = scale, scaleY = scale),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 0.dp
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(Color.White, RoundedCornerShape(12.dp)),
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.QrCode2,
                     contentDescription = null,
-                    tint = Color.Black.copy(alpha = 0.8f),
-                    modifier = Modifier.size(26.dp)
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(22.dp)
                 )
             }
             Spacer(modifier = Modifier.width(16.dp))
@@ -165,21 +174,32 @@ fun RecentScanCard(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Black.copy(alpha = 0.5f)
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
                 )
             }
             Text(
                 text = time,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.Black.copy(alpha = 0.4f),
-                fontSize = 11.sp
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(start = 8.dp)
             )
         }
+    }
+}
+
+@Composable
+fun GlassPanel(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        content()
     }
 }

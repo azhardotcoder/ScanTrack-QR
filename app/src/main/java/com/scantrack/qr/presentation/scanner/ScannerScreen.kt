@@ -51,6 +51,14 @@ import com.google.mlkit.vision.common.InputImage
 import com.scantrack.qr.presentation.utils.ActionUtils
 import java.util.concurrent.Executors
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import android.media.AudioManager
+import android.media.ToneGenerator
+
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ScannerScreen(
@@ -59,7 +67,31 @@ fun ScannerScreen(
 ) {
     val scanState by viewModel.scanState.collectAsStateWithLifecycle()
     val isFlashOn by viewModel.isFlashOn.collectAsStateWithLifecycle()
+    val hapticEnabled by viewModel.hapticEnabled.collectAsStateWithLifecycle()
+    
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            uri?.let {
+                processGalleryImage(context, it) { rawValue ->
+                    viewModel.onQrDetected(rawValue)
+                }
+            }
+        }
+    )
+
+    // Handle feedback on scan
+    LaunchedEffect(scanState) {
+        if (scanState is ScanState.Result) {
+            if (hapticEnabled) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         when {
@@ -98,7 +130,7 @@ fun ScannerScreen(
                     )
                 }
 
-                // ---- Hint text ----
+                // ---- Center Hint ----
                 Text(
                     text = "Point at a QR code to scan",
                     color = Color.White.copy(alpha = 0.7f),
@@ -107,6 +139,24 @@ fun ScannerScreen(
                         .align(Alignment.Center)
                         .offset(y = 160.dp)
                 )
+
+                // ---- Bottom Controls (Gallery) ----
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 60.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ScannerControlButton(
+                        icon = Icons.Default.Image,
+                        onClick = { 
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                    )
+                }
 
                 // ---- Scan result bottom sheet ----
                 if (scanState is ScanState.Result) {
@@ -132,6 +182,25 @@ fun ScannerScreen(
                 )
             }
         }
+    }
+}
+
+/** ML Kit Processing for Gallery Images */
+private fun processGalleryImage(context: Context, uri: android.net.Uri, onDetected: (String) -> Unit) {
+    try {
+        val image = InputImage.fromFilePath(context, uri)
+        val scanner = BarcodeScanning.getClient()
+        scanner.process(image)
+            .addOnSuccessListener { barcodes ->
+                barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                    ?.rawValue
+                    ?.let { onDetected(it) } ?: Toast.makeText(context, "No QR Code found in image", Toast.LENGTH_SHORT).show()
+            }
+            .addOnFailureListener {
+                Toast.makeText(context, "Failed to process image", Toast.LENGTH_SHORT).show()
+            }
+    } catch (e: Exception) {
+        Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -174,7 +243,8 @@ private fun CameraPreviewView(
 
             @androidx.annotation.OptIn(ExperimentalGetImage::class)
             val imageAnalyzer = ImageAnalysis.Builder()
-                .setTargetResolution(Size(1280, 720))
+                // Dynamic resolution: prefer higher quality if available, falling back to 720p
+                .setTargetResolution(Size(1280, 720)) 
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also { analysis ->

@@ -2,21 +2,36 @@ package com.scantrack.qr.presentation.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+
+private val DarkColorScheme = darkColorScheme(
+    primary = PrimaryBlue,
+    secondary = AccentGreen,
+    tertiary = SoftRose,
+    background = DarkBackground,
+    surface = DarkSurface,
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onBackground = DarkTextPrimary,
+    onSurface = DarkTextPrimary,
+    surfaceVariant = DarkGlassSurface,
+    onSurfaceVariant = DarkTextSecondary
+)
 
 private val LightColorScheme = lightColorScheme(
     primary = PrimaryBlue,
     secondary = AccentGreen,
     tertiary = SoftRose,
-    background = Color.White,
+    background = GlassBackground,
     surface = Color.White,
     onPrimary = Color.White,
     onSecondary = Color.White,
     onBackground = TextPrimary,
     onSurface = TextPrimary,
-    surfaceVariant = Color(0xFFF1F5F9),
+    surfaceVariant = GlassSurface,
     onSurfaceVariant = TextSecondary
 )
 
@@ -25,9 +40,10 @@ fun ScanTrackQRTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    // Ensuring Light Mode for premium glass look
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    
     MaterialTheme(
-        colorScheme = LightColorScheme,
+        colorScheme = colorScheme,
         typography = Typography,
         content = content
     )

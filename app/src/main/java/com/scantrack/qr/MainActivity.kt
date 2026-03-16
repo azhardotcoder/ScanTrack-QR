@@ -19,52 +19,64 @@ import com.scantrack.qr.presentation.components.GlassmorphismDock
 import com.scantrack.qr.presentation.navigation.NavGraph
 import com.scantrack.qr.presentation.navigation.Screen
 import com.scantrack.qr.presentation.theme.ScanTrackQRTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            ScanTrackQRTheme {
-                val navController = rememberNavController()
-                val snackbarHostState = remember { SnackbarHostState() }
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
+                val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as com.scantrack.qr.ScanTrackApp
+                val darkMode by app.settingsManager.darkMode.collectAsStateWithLifecycle(initialValue = "SYSTEM")
+                
+                val darkTheme = when (darkMode) {
+                    "LIGHT" -> false
+                    "DARK" -> true
+                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                }
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = Color.Transparent, // Root mesh background is behind this
-                    snackbarHost = { SnackbarHost(snackbarHostState) },
-                    bottomBar = {
-                        // Show dock on Home, History, and Settings only
-                        if (currentRoute in listOf(Screen.Home.route, Screen.History.route, Screen.Settings.route)) {
-                            GlassmorphismDock(
-                                currentRoute = currentRoute,
-                                onHistoryClick = { 
-                                    if (currentRoute != Screen.History.route) {
-                                        navController.navigate(Screen.History.route) {
-                                            launchSingleTop = true
+                ScanTrackQRTheme(darkTheme = darkTheme) {
+                    val navController = rememberNavController()
+                    val snackbarHostState = remember { SnackbarHostState() }
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route
+
+                    com.scantrack.qr.presentation.components.ModernBackground {
+                        Scaffold(
+                            modifier = Modifier.fillMaxSize(),
+                            containerColor = Color.Transparent, // Root mesh background is behind this
+                            snackbarHost = { SnackbarHost(snackbarHostState) },
+                            bottomBar = {
+                                // Show dock on Home, History, and Settings only
+                                if (currentRoute in listOf(Screen.Home.route, Screen.History.route, Screen.Settings.route)) {
+                                    GlassmorphismDock(
+                                        currentRoute = currentRoute,
+                                        onHistoryClick = { 
+                                            if (currentRoute != Screen.History.route) {
+                                                navController.navigate(Screen.History.route) {
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        },
+                                        onScanClick = { navController.navigate(Screen.Scanner.route) },
+                                        onSettingsClick = { 
+                                            if (currentRoute != Screen.Settings.route) {
+                                                navController.navigate(Screen.Settings.route) {
+                                                    launchSingleTop = true
+                                                }
+                                            }
                                         }
-                                    }
-                                },
-                                onScanClick = { navController.navigate(Screen.Scanner.route) },
-                                onSettingsClick = { 
-                                    if (currentRoute != Screen.Settings.route) {
-                                        navController.navigate(Screen.Settings.route) {
-                                            launchSingleTop = true
-                                        }
-                                    }
+                                    )
                                 }
+                            }
+                        ) { innerPadding ->
+                            NavGraph(
+                                navController = navController,
+                                paddingValues = innerPadding
                             )
                         }
                     }
-                ) { innerPadding ->
-                    NavGraph(
-                        navController = navController,
-                        paddingValues = innerPadding
-                    )
                 }
-            }
         }
     }
 }
