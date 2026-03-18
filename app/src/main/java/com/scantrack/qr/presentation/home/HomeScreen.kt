@@ -164,7 +164,7 @@ private fun EmptyHomeState() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Surface(
-                color = Color.White.copy(alpha = 0.3f),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 shape = CircleShape,
                 modifier = Modifier.size(80.dp)
             ) {
@@ -173,13 +173,13 @@ private fun EmptyHomeState() {
                         Icons.Default.Settings,
                         contentDescription = null,
                         modifier = Modifier.size(32.dp),
-                        tint = Color.Black.copy(alpha = 0.2f)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Text("No scans found", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.Black.copy(alpha = 0.4f))
-            Text("Tap the center button to start", color = Color.Black.copy(alpha = 0.3f), fontSize = 14.sp)
+            Text("No scans found", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+            Text("Tap the center button to start", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f), fontSize = 14.sp)
         }
     }
 }

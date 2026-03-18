@@ -477,6 +477,8 @@ private fun ScanResultSheet(
                     isPrimary = true,
                     modifier = Modifier.weight(1f),
                     onClick = {
+                        // Dismiss BEFORE launching the intent to reset state and prevent task coupling
+                        onDismiss()
                         ActionUtils.openQrContent(context, result.rawValue)
                     }
                 )
