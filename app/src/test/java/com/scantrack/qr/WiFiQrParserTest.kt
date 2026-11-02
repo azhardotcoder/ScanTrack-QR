@@ -75,7 +75,7 @@ class WiFiQrParserTest {
         val result = WiFiQrParser.parse(raw)
 
         assertFalse(result.isValid)
-        assertTrue(result.validationError?.contains("Missing SSID") == true)
+        assertTrue(result.validationError?.contains("SSID") == true)
     }
 
     @Test
@@ -84,7 +84,43 @@ class WiFiQrParserTest {
         val result = WiFiQrParser.parse(raw)
 
         assertFalse(result.isValid)
-        assertTrue(result.validationError?.contains("at least 8 characters") == true)
+        assertTrue(result.validationError?.contains("between 8 and 63 characters") == true)
+    }
+
+    @Test
+    fun parse_wepSecurity_returnsInvalidBecauseDeprecatedAndInsecure() {
+        val raw = "WIFI:T:WEP;S:LegacyRouter;P:1234567890;;"
+        val result = WiFiQrParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("WEP security is obsolete") == true)
+    }
+
+    @Test
+    fun parse_unknownSecurityType_returnsInvalid() {
+        val raw = "WIFI:T:CUSTOM_AUTH;S:UnknownNet;P:12345678;;"
+        val result = WiFiQrParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("Unsupported Wi-Fi security type") == true)
+    }
+
+    @Test
+    fun parse_securedWpaWithEmptyPassword_returnsInvalid() {
+        val raw = "WIFI:T:WPA;S:EmptyPassNet;P:;;"
+        val result = WiFiQrParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("Password is required") == true)
+    }
+
+    @Test
+    fun parse_securedWpaWithOmittedPassword_returnsInvalid() {
+        val raw = "WIFI:T:WPA;S:NoPassParamNet;;"
+        val result = WiFiQrParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("Password is required") == true)
     }
 
     @Test

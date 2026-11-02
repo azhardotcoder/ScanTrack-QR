@@ -19,8 +19,13 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * Migration from Schema 1 to Schema 2:
-         * 1. Safely merges existing duplicate records (aggregating usageCount and preserving isPinned).
-         * 2. Deletes duplicate entries, keeping the survivor.
+         * 1. Safely merges existing duplicate records preserving:
+         *    - label (retains custom label if set on any duplicate)
+         *    - createdAt (retains earliest original timestamp via MIN)
+         *    - lastUsedAt (retains newest timestamp via MAX)
+         *    - usageCount (aggregates total scans via SUM)
+         *    - isPinned (preserves pinned state if true on any duplicate via MAX)
+         * 2. Deletes duplicate entries, keeping the survivor (MAX(id)).
          * 3. Creates unique index on `rawValue`.
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -37,7 +42,29 @@ abstract class AppDatabase : RoomDatabase() {
                         SELECT MAX(q2.isPinned)
                         FROM qr_history q2
                         WHERE q2.rawValue = qr_history.rawValue
-                    )
+                    ),
+                    createdAt = (
+                        SELECT MIN(q2.createdAt)
+                        FROM qr_history q2
+                        WHERE q2.rawValue = qr_history.rawValue
+                    ),
+                    lastUsedAt = (
+                        SELECT MAX(q2.lastUsedAt)
+                        FROM qr_history q2
+                        WHERE q2.rawValue = qr_history.rawValue
+                    ),
+                    label = CASE
+                        WHEN label IS NOT NULL AND TRIM(label) != '' THEN label
+                        ELSE (
+                            SELECT q2.label
+                            FROM qr_history q2
+                            WHERE q2.rawValue = qr_history.rawValue
+                              AND q2.label IS NOT NULL
+                              AND TRIM(q2.label) != ''
+                            ORDER BY q2.id DESC
+                            LIMIT 1
+                        )
+                    END
                     WHERE id IN (
                         SELECT MAX(id)
                         FROM qr_history

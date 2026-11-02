@@ -37,7 +37,7 @@ class HistoryViewModel(private val repository: QrRepository) : ViewModel() {
 
     fun togglePin(qr: QrEntity) {
         viewModelScope.launch {
-            repository.togglePin(qr.id, qr.isPinned)
+            repository.togglePin(qr.id)
         }
     }
 

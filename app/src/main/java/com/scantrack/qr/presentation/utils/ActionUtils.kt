@@ -22,6 +22,10 @@ import com.scantrack.qr.data.parser.WiFiQrParser
 
 object ActionUtils {
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var activeWifiCallback: ConnectivityManager.NetworkCallback? = null
+    private var activeTimeoutRunnable: Runnable? = null
+
     /**
      * Unified handler to safely dispatch actions based on the detected QR type.
      * All actions require explicit user intent and never execute untrusted scripts or modify payment payloads.
@@ -53,7 +57,7 @@ object ActionUtils {
     /**
      * Opens UPI Payment strictly preserving the original scanned URI.
      * Never removes merchant codes (mc), mode, or transaction references (tr),
-     * and never converts merchant payments to P2P.
+     * and never converts merchant payments to P2P. Rejects ambiguous duplicate instructions.
      */
     fun openUpiPayment(context: Context, originalUpiUri: String) {
         val upiData = UpiPaymentParser.parse(originalUpiUri)
@@ -140,6 +144,11 @@ object ActionUtils {
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun connectToWifiApi29(context: Context, wifiData: com.scantrack.qr.data.parser.WiFiNetworkData) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        // Clean up any previously pending Wi-Fi connection request
+        cleanupActiveWifiRequest(connectivityManager)
+
         try {
             val specifierBuilder = WifiNetworkSpecifier.Builder()
                 .setSsid(wifiData.ssid)
@@ -160,12 +169,11 @@ object ActionUtils {
                     }
                 }
                 "nopass" -> {
-                    // Open network
+                    // Open network - no passphrase needed
                 }
                 else -> {
-                    if (wifiData.password.isNotEmpty()) {
-                        specifierBuilder.setWpa2Passphrase(wifiData.password)
-                    }
+                    Toast.makeText(context, "Unsupported Wi-Fi security type: ${wifiData.security}", Toast.LENGTH_SHORT).show()
+                    return
                 }
             }
 
@@ -175,46 +183,73 @@ object ActionUtils {
                 .setNetworkSpecifier(specifierBuilder.build())
                 .build()
 
-            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            
-            val handler = Handler(Looper.getMainLooper())
-            var isCallbackRegistered = true
+            var isConnectionEstablished = false
 
             val networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     super.onAvailable(network)
-                    handler.post {
+                    isConnectionEstablished = true
+
+                    // Cancel pending timeout: KEEP the Wi-Fi connection active!
+                    activeTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                    activeTimeoutRunnable = null
+
+                    mainHandler.post {
                         Toast.makeText(context, "Connected to ${wifiData.ssid}", Toast.LENGTH_SHORT).show()
                     }
                 }
 
                 override fun onUnavailable() {
                     super.onUnavailable()
-                    handler.post {
+                    cleanupActiveWifiRequest(connectivityManager)
+                    mainHandler.post {
                         Toast.makeText(context, "Could not connect to ${wifiData.ssid}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    super.onLost(network)
+                    cleanupActiveWifiRequest(connectivityManager)
+                    mainHandler.post {
+                        Toast.makeText(context, "Disconnected from ${wifiData.ssid}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
 
-            connectivityManager.requestNetwork(request, networkCallback)
-            Toast.makeText(context, "Connecting to ${wifiData.ssid}...", Toast.LENGTH_SHORT).show()
+            activeWifiCallback = networkCallback
 
-            // Safe timeout: unregister network callback after 20 seconds to prevent resource leak
-            handler.postDelayed({
-                try {
-                    if (isCallbackRegistered) {
-                        connectivityManager.unregisterNetworkCallback(networkCallback)
-                        isCallbackRegistered = false
-                    }
-                } catch (ignored: Exception) {
+            // Safe connection attempt timeout: 30 seconds only if NOT connected yet
+            val timeoutRunnable = Runnable {
+                if (!isConnectionEstablished && activeWifiCallback === networkCallback) {
+                    cleanupActiveWifiRequest(connectivityManager)
+                    Toast.makeText(context, "Wi-Fi connection attempt timed out", Toast.LENGTH_SHORT).show()
                 }
-            }, 20_000L)
+            }
+            activeTimeoutRunnable = timeoutRunnable
+            mainHandler.postDelayed(timeoutRunnable, 30_000L)
+
+            connectivityManager.requestNetwork(request, networkCallback)
+            Toast.makeText(context, "Requesting connection to ${wifiData.ssid}...", Toast.LENGTH_SHORT).show()
 
         } catch (e: SecurityException) {
-            Toast.makeText(context, "Network permission denied by system", Toast.LENGTH_SHORT).show()
+            cleanupActiveWifiRequest(connectivityManager)
+            Toast.makeText(context, "Wi-Fi network request permission denied by system", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
+            cleanupActiveWifiRequest(connectivityManager)
             Toast.makeText(context, "Wi-Fi connection failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun cleanupActiveWifiRequest(connectivityManager: ConnectivityManager) {
+        activeTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        activeTimeoutRunnable = null
+        activeWifiCallback?.let { callback ->
+            try {
+                connectivityManager.unregisterNetworkCallback(callback)
+            } catch (ignored: Exception) {
+            }
+        }
+        activeWifiCallback = null
     }
 
     fun copyToClipboard(context: Context, label: String, text: String) {

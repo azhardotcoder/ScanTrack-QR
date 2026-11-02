@@ -36,11 +36,15 @@ class QrRepository(private val qrDao: QrDao) {
     }
 
     /**
-     * Targeted update of pinned status by ID.
-     * Prevents overwriting concurrent label or usageCount changes.
+     * Atomically toggles pinned status directly in SQLite by ID.
+     * Guaranteed independent of any stale UI snapshots.
      */
-    suspend fun togglePin(id: Long, currentPin: Boolean) = withContext(Dispatchers.IO) {
-        qrDao.updatePin(id, !currentPin)
+    suspend fun togglePin(id: Long) = withContext(Dispatchers.IO) {
+        qrDao.togglePinById(id)
+    }
+
+    suspend fun updatePin(id: Long, isPinned: Boolean) = withContext(Dispatchers.IO) {
+        qrDao.updatePin(id, isPinned)
     }
 
     /**

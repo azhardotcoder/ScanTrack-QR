@@ -68,6 +68,23 @@ fun ScannerScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
+    // Reset scanner state on screen entry and exit
+    DisposableEffect(Unit) {
+        viewModel.resetScanner()
+        onDispose {
+            viewModel.resetScanner()
+        }
+    }
+
+    // Automatic first-time permission prompt
+    var hasRequestedInitially by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!cameraPermissionState.status.isGranted && !cameraPermissionState.status.shouldShowRationale && !hasRequestedInitially) {
+            hasRequestedInitially = true
+            cameraPermissionState.launchPermissionRequest()
+        }
+    }
+
     // Gallery picker launcher - accessible at all times, independent of camera permission
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -242,6 +259,7 @@ private fun CameraPreviewView(
     )
 
     DisposableEffect(lifecycleOwner) {
+        var isDisposed = false
         val executor = Executors.newSingleThreadExecutor()
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
@@ -251,8 +269,15 @@ private fun CameraPreviewView(
         val barcodeScanner = BarcodeScanning.getClient(options)
 
         val listener = Runnable {
+            // Guard against late execution if disposed before future completes
+            if (isDisposed) return@Runnable
+
             try {
                 val cameraProvider = cameraProviderFuture.get()
+                if (isDisposed) {
+                    cameraProvider.unbindAll()
+                    return@Runnable
+                }
 
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
@@ -274,8 +299,8 @@ private fun CameraPreviewView(
                     .build()
                     .also { analysis ->
                         analysis.setAnalyzer(executor) { imageProxy ->
-                            // Bounded frame processing: Skip ML Kit if result sheet is already open
-                            if (!currentScanningState) {
+                            // Bounded frame processing: Skip ML Kit if result sheet is already open or disposed
+                            if (isDisposed || !currentScanningState) {
                                 imageProxy.close()
                                 return@setAnalyzer
                             }
@@ -288,9 +313,11 @@ private fun CameraPreviewView(
                                 )
                                 barcodeScanner.process(image)
                                     .addOnSuccessListener { barcodes ->
-                                        barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                                            ?.rawValue
-                                            ?.let { currentOnDetected(it) }
+                                        if (!isDisposed && currentScanningState) {
+                                            barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                                ?.rawValue
+                                                ?.let { currentOnDetected(it) }
+                                        }
                                     }
                                     .addOnCompleteListener {
                                         imageProxy.close()
@@ -316,6 +343,7 @@ private fun CameraPreviewView(
         cameraProviderFuture.addListener(listener, ContextCompat.getMainExecutor(context))
 
         onDispose {
+            isDisposed = true
             try {
                 if (cameraProviderFuture.isDone) {
                     cameraProviderFuture.get().unbindAll()

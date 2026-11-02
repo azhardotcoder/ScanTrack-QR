@@ -37,6 +37,7 @@ class ScannerStateMachineTest {
         override suspend fun deleteById(id: Long): Int = 1
         override suspend fun deleteAll(): Int = records.size.also { records.clear() }
         override suspend fun updatePin(id: Long, isPinned: Boolean): Int = 1
+        override suspend fun togglePinById(id: Long): Int = 1
         override suspend fun updateLabel(id: Long, label: String): Int = 1
         override suspend fun incrementUsage(id: Long, timestamp: Long): Int = 1
         override suspend fun incrementUsageByRawValue(rawValue: String, timestamp: Long): Int {

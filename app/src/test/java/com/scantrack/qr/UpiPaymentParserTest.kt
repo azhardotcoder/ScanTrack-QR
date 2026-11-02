@@ -66,17 +66,34 @@ class UpiPaymentParserTest {
         val result = UpiPaymentParser.parse(raw)
 
         assertFalse(result.isValid)
-        assertTrue(result.validationError?.contains("Unsupported payment scheme") == true)
+        assertTrue(result.validationError?.contains("expected strict upi://pay") == true)
     }
 
     @Test
-    fun parse_duplicateQueryParameters_handlesSafelyWithoutCrashing() {
-        val raw = "upi://pay?pa=user@upi&pa=other@upi&pn=First&pn=Second"
+    fun parse_duplicateQueryParameters_rejectsAmbiguousPaymentInstruction() {
+        val raw = "upi://pay?pa=user@upi&pa=other@upi&pn=First"
         val result = UpiPaymentParser.parse(raw)
 
-        assertTrue(result.isValid)
-        assertEquals("user@upi", result.payeeVpa)
-        assertEquals("First", result.payeeName)
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("duplicate 'pa' parameter") == true)
+    }
+
+    @Test
+    fun parse_duplicateAmountParameters_rejectsAmbiguousPaymentInstruction() {
+        val raw = "upi://pay?pa=user@upi&pn=First&am=100&am=200"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("duplicate 'am' parameter") == true)
+    }
+
+    @Test
+    fun parse_permissivePrefixWithoutHierarchicalAuthority_returnsInvalid() {
+        val raw = "upi:pay?pa=user@upi&pn=Test"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("expected strict upi://pay") == true)
     }
 }
 

@@ -39,6 +39,9 @@ interface QrDao {
     @Query("DELETE FROM qr_history")
     suspend fun deleteAll(): Int
 
+    @Query("UPDATE qr_history SET isPinned = CASE WHEN isPinned = 1 THEN 0 ELSE 1 END WHERE id = :id")
+    suspend fun togglePinById(id: Long): Int
+
     @Query("UPDATE qr_history SET isPinned = :isPinned WHERE id = :id")
     suspend fun updatePin(id: Long, isPinned: Boolean): Int
 

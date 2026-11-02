@@ -7,6 +7,7 @@ import java.net.URLDecoder
  *
  * Adheres strictly to the NPCI Unified Payment Interface specification.
  * Preserves the original URI without stripping or downgrading merchant parameters (mc, mode, tr).
+ * Rejects ambiguous instructions (e.g. duplicate query parameters, permissive URI schemes).
  */
 data class UpiPaymentData(
     val originalUri: String,
@@ -24,8 +25,8 @@ data class UpiPaymentData(
 object UpiPaymentParser {
 
     /**
-     * Parses a UPI URI string strictly, validating the scheme and extracting metadata
-     * while guaranteeing that the raw URI is preserved in its entirety.
+     * Parses a UPI URI string strictly, validating the exact scheme and authority (upi://pay)
+     * and rejecting ambiguous payment instructions (such as duplicate parameters).
      */
     fun parse(rawUri: String): UpiPaymentData {
         val trimmed = rawUri.trim()
@@ -37,13 +38,14 @@ object UpiPaymentParser {
             )
         }
 
-        // Scheme validation
-        val isUpiScheme = trimmed.startsWith("upi://pay", ignoreCase = true) || trimmed.startsWith("upi:pay", ignoreCase = true)
-        if (!isUpiScheme) {
+        // Strict scheme & authority validation: must begin with upi://pay? (case-insensitive)
+        val lower = trimmed.lowercase()
+        val isValidPrefix = lower.startsWith("upi://pay?") || lower == "upi://pay"
+        if (!isValidPrefix) {
             return UpiPaymentData(
                 originalUri = rawUri,
                 isValid = false,
-                validationError = "Unsupported payment scheme: expected upi://pay"
+                validationError = "Invalid UPI URI: expected strict upi://pay scheme and authority"
             )
         }
 
@@ -55,24 +57,41 @@ object UpiPaymentParser {
                 ""
             }
 
+            if (queryString.isBlank()) {
+                return UpiPaymentData(
+                    originalUri = rawUri,
+                    isValid = false,
+                    validationError = "Missing payment parameters"
+                )
+            }
+
             val queryParams = mutableMapOf<String, String>()
-            if (queryString.isNotBlank()) {
-                queryString.split('&').forEach { pair ->
-                    val eqIndex = pair.indexOf('=')
-                    if (eqIndex != -1) {
-                        val key = pair.substring(0, eqIndex).trim()
-                        val rawValue = pair.substring(eqIndex + 1)
-                        val decodedValue = try {
-                            URLDecoder.decode(rawValue, "UTF-8")
-                        } catch (e: Exception) {
-                            rawValue
-                        }
-                        // Keep first occurrence of parameter
-                        if (!queryParams.containsKey(key)) {
-                            queryParams[key] = decodedValue.trim()
-                        }
-                    }
+            val criticalParams = setOf("pa", "am", "cu", "tr", "mc", "pn")
+
+            val pairs = queryString.split('&')
+            for (pair in pairs) {
+                if (pair.isBlank()) continue
+                val eqIndex = pair.indexOf('=')
+                if (eqIndex == -1) continue
+
+                val key = pair.substring(0, eqIndex).trim().lowercase()
+                val rawValue = pair.substring(eqIndex + 1)
+                val decodedValue = try {
+                    URLDecoder.decode(rawValue, "UTF-8").trim()
+                } catch (e: Exception) {
+                    rawValue.trim()
                 }
+
+                // Security check: Reject duplicate critical payment parameters
+                if (criticalParams.contains(key) && queryParams.containsKey(key)) {
+                    return UpiPaymentData(
+                        originalUri = rawUri,
+                        isValid = false,
+                        validationError = "Ambiguous payment instruction: duplicate '$key' parameter detected"
+                    )
+                }
+
+                queryParams[key] = decodedValue
             }
 
             val pa = queryParams["pa"]
@@ -83,8 +102,12 @@ object UpiPaymentParser {
             val mc = queryParams["mc"]
             val tn = queryParams["tn"]
 
-            // VPA (Virtual Private Address) validation: must contain '@' and no spaces
-            val isValidVpa = !pa.isNullOrBlank() && pa.contains("@") && !pa.contains(" ")
+            // Strict VPA (Virtual Payment Address) validation: name@handle
+            // Must contain exactly one '@', no whitespace, and valid identifier characters
+            val isValidVpa = !pa.isNullOrBlank() &&
+                    pa.indexOf('@') == pa.lastIndexOf('@') &&
+                    pa.indexOf('@') in 1 until (pa.length - 1) &&
+                    !pa.contains(" ")
 
             if (!isValidVpa) {
                 return UpiPaymentData(
@@ -97,13 +120,31 @@ object UpiPaymentParser {
                     merchantCode = mc,
                     transactionNote = tn,
                     isValid = false,
-                    validationError = if (pa.isNullOrBlank()) "Missing payee UPI ID (pa)" else "Malformed payee UPI ID"
+                    validationError = if (pa.isNullOrBlank()) "Missing payee UPI ID (pa)" else "Malformed payee UPI ID: $pa"
                 )
             }
 
-            // Amount validation (if present, must be a positive number)
-            val isAmountValid = am.isNullOrBlank() || (am.toDoubleOrNull()?.let { it > 0 } == true)
-            if (!isAmountValid) {
+            // Amount validation (if present, must be positive decimal)
+            if (!am.isNullOrBlank()) {
+                val parsedAmount = am.toDoubleOrNull()
+                if (parsedAmount == null || parsedAmount <= 0.0) {
+                    return UpiPaymentData(
+                        originalUri = rawUri,
+                        payeeVpa = pa,
+                        payeeName = pn,
+                        amount = am,
+                        currency = cu,
+                        transactionRef = tr,
+                        merchantCode = mc,
+                        transactionNote = tn,
+                        isValid = false,
+                        validationError = "Invalid transaction amount: $am"
+                    )
+                }
+            }
+
+            // Currency validation (must be 3 alphabetic characters, default INR)
+            if (cu.length != 3 || !cu.all { it.isLetter() }) {
                 return UpiPaymentData(
                     originalUri = rawUri,
                     payeeVpa = pa,
@@ -114,7 +155,7 @@ object UpiPaymentParser {
                     merchantCode = mc,
                     transactionNote = tn,
                     isValid = false,
-                    validationError = "Invalid transaction amount"
+                    validationError = "Invalid currency code: $cu"
                 )
             }
 
@@ -133,7 +174,7 @@ object UpiPaymentParser {
             UpiPaymentData(
                 originalUri = rawUri,
                 isValid = false,
-                validationError = "Failed to parse URI: ${e.message}"
+                validationError = "Failed to parse UPI URI: ${e.message}"
             )
         }
     }
