@@ -4,23 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.scantrack.qr.data.local.SettingsManager
 import com.scantrack.qr.data.local.entity.QrEntity
+import com.scantrack.qr.data.parser.QrTypeDetector
 import com.scantrack.qr.data.repository.QrRepository
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
-/** Detects the semantic type of a QR raw value */
-fun detectQrType(rawValue: String): String = when {
-    rawValue.startsWith("http://") || rawValue.startsWith("https://") -> "URL"
-    rawValue.startsWith("upi://pay") -> "PAYMENT"
-    rawValue.startsWith("WIFI:") -> "WIFI"
-    rawValue.startsWith("mailto:") -> "EMAIL"
-    rawValue.startsWith("tel:") -> "PHONE"
-    else -> "TEXT"
-}
+/** Legacy delegate for backward compatibility */
+fun detectQrType(rawValue: String): String = QrTypeDetector.detect(rawValue)
 
 data class ScanResult(
     val rawValue: String,
@@ -37,7 +34,8 @@ sealed class ScanState {
 
 class ScannerViewModel(
     private val repository: QrRepository,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager? = null,
+    hapticFlowOverride: Flow<Boolean>? = null
 ) : ViewModel() {
 
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Scanning)
@@ -46,34 +44,43 @@ class ScannerViewModel(
     private val _isFlashOn = MutableStateFlow(false)
     val isFlashOn: StateFlow<Boolean> = _isFlashOn.asStateFlow()
 
-    val hapticEnabled: StateFlow<Boolean> = settingsManager.hapticEnabled
+    val hapticEnabled: StateFlow<Boolean> = (hapticFlowOverride ?: settingsManager?.hapticEnabled ?: flowOf(true))
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    /** Throttle: track the last scanned value to avoid duplicates in quick succession */
-    private var lastScannedValue: String? = null
+    /** Concurrency lock: true when actively accepting QR detections */
+    private val isAcceptingScans = AtomicBoolean(true)
 
     fun onQrDetected(rawValue: String) {
-        if (rawValue.isBlank()) return
-        if (rawValue == lastScannedValue) return // throttle repeated hits
-        lastScannedValue = rawValue
+        val trimmed = rawValue.trim()
+        if (trimmed.isBlank()) return
 
-        val type = detectQrType(rawValue)
-        val label = deriveLabelFromRaw(rawValue, type)
-        val result = ScanResult(rawValue = rawValue, label = label, type = type)
+        // State Machine check: Only process if in Scanning state and lock acquired
+        if (!isAcceptingScans.compareAndSet(true, false)) {
+            return
+        }
+
+        val type = QrTypeDetector.detect(trimmed)
+        val label = QrTypeDetector.deriveLabel(trimmed, type)
+        val result = ScanResult(rawValue = trimmed, label = label, type = type)
+
         _scanState.value = ScanState.Result(result)
 
-        // Persist to Room database
+        // Persist atomically to Room database
         viewModelScope.launch {
-            repository.saveOrUpdateQr(
-                QrEntity(
-                    rawValue = rawValue,
-                    label = label,
-                    type = type,
-                    createdAt = System.currentTimeMillis(),
-                    lastUsedAt = System.currentTimeMillis(),
-                    usageCount = 1
+            try {
+                repository.saveOrUpdateQr(
+                    QrEntity(
+                        rawValue = trimmed,
+                        label = label,
+                        type = type,
+                        createdAt = System.currentTimeMillis(),
+                        lastUsedAt = System.currentTimeMillis(),
+                        usageCount = 1
+                    )
                 )
-            )
+            } catch (e: Exception) {
+                // Database write error handled safely
+            }
         }
     }
 
@@ -82,24 +89,13 @@ class ScannerViewModel(
     }
 
     fun dismissResult() {
-        // Allow the user to scan again after dismissing
-        lastScannedValue = null
+        // Reset state machine to scanning mode
+        isAcceptingScans.set(true)
         _scanState.value = ScanState.Scanning
     }
 
-    fun onGalleryImageScanned(uri: android.net.Uri) {
-        // Signal can be handled here if we needed to track gallery scans specifically
-    }
-
-    private fun deriveLabelFromRaw(rawValue: String, type: String): String = when (type) {
-        "URL" -> rawValue.removePrefix("https://").removePrefix("http://").substringBefore("/").take(40)
-        "PAYMENT" -> "UPI Payment"
-        "WIFI" -> {
-            val ssid = rawValue.substringAfter("S:").substringBefore(";")
-            if (ssid.isNotEmpty()) "WiFi: $ssid" else "WiFi Network"
-        }
-        "EMAIL" -> rawValue.removePrefix("mailto:").substringBefore("?")
-        "PHONE" -> rawValue.removePrefix("tel:")
-        else -> rawValue.take(40)
+    fun resetScanner() {
+        isAcceptingScans.set(true)
+        _scanState.value = ScanState.Scanning
     }
 }
