@@ -6,14 +6,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface QrDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertQr(qr: QrEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertQr(qr: QrEntity): Long
 
     @Update
     suspend fun updateQr(qr: QrEntity)
 
     @Delete
     suspend fun deleteQr(qr: QrEntity)
+
+    @Query("SELECT * FROM qr_history WHERE id = :id LIMIT 1")
+    suspend fun getQrById(id: Long): QrEntity?
 
     @Query("SELECT * FROM qr_history WHERE rawValue = :rawValue LIMIT 1")
     suspend fun getQrByRawValue(rawValue: String): QrEntity?
@@ -31,7 +34,22 @@ interface QrDao {
     fun getAllQrs(): Flow<List<QrEntity>>
 
     @Query("DELETE FROM qr_history WHERE id = :id")
-    suspend fun deleteById(id: Long)
+    suspend fun deleteById(id: Long): Int
+
+    @Query("DELETE FROM qr_history")
+    suspend fun deleteAll(): Int
+
+    @Query("UPDATE qr_history SET isPinned = :isPinned WHERE id = :id")
+    suspend fun updatePin(id: Long, isPinned: Boolean): Int
+
+    @Query("UPDATE qr_history SET label = :label WHERE id = :id")
+    suspend fun updateLabel(id: Long, label: String): Int
+
+    @Query("UPDATE qr_history SET usageCount = usageCount + 1, lastUsedAt = :timestamp WHERE id = :id")
+    suspend fun incrementUsage(id: Long, timestamp: Long): Int
+
+    @Query("UPDATE qr_history SET usageCount = usageCount + 1, lastUsedAt = :timestamp WHERE rawValue = :rawValue")
+    suspend fun incrementUsageByRawValue(rawValue: String, timestamp: Long): Int
 
     @Query("""
         SELECT * FROM qr_history 
