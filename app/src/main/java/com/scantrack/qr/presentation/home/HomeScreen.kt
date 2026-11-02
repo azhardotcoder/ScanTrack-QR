@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.tooling.preview.Preview
+import com.scantrack.qr.presentation.theme.ScanTrackQRTheme
 import com.scantrack.qr.R
 import com.scantrack.qr.data.local.entity.QrEntity
 import com.scantrack.qr.presentation.components.*
@@ -191,12 +193,35 @@ private fun getIconColorForType(type: String): Color = when (type) {
     else -> Color(0xFF64748B)
 }
 
-private fun formatTime(timestamp: Long): String {
-    val diff = System.currentTimeMillis() - timestamp
-    return when {
-        diff < 60_000 -> "just now"
-        diff < 3600_000 -> "${diff / 60_000}m ago"
-        diff < 86400_000 -> "${diff / 3600_000}h ago"
-        else -> "today"
+private fun formatTime(timestamp: Long): String = com.scantrack.qr.presentation.utils.TimeUtils.formatRelativeTime(timestamp)
+
+@Preview(showBackground = true, backgroundColor = 0xFF0F172A)
+@Composable
+private fun HomeScreenPreview() {
+    ScanTrackQRTheme(darkTheme = true) {
+        val sampleList = listOf(
+            QrEntity(
+                id = 1,
+                rawValue = "https://github.com",
+                label = "GitHub Profile",
+                type = "URL",
+                usageCount = 12,
+                isPinned = true
+            ),
+            QrEntity(
+                id = 2,
+                rawValue = "upi://pay?pa=store@upi&pn=Store",
+                label = "Coffee Shop UPI",
+                type = "PAYMENT",
+                usageCount = 8,
+                isPinned = true
+            )
+        )
+        HomeScreenContent(
+            pinnedQrs = sampleList,
+            quickAccessQrs = sampleList,
+            recentScans = sampleList,
+            onQrClick = {}
+        )
     }
 }

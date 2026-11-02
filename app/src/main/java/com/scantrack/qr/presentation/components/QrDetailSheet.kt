@@ -3,9 +3,8 @@ package com.scantrack.qr.presentation.components
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.foundation.background
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -14,12 +13,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scantrack.qr.data.local.entity.QrEntity
+import com.scantrack.qr.data.parser.QrTypeDetector
+import com.scantrack.qr.data.parser.UpiPaymentParser
+import com.scantrack.qr.data.parser.WiFiQrParser
 import com.scantrack.qr.presentation.utils.ActionUtils
 import java.text.SimpleDateFormat
 import java.util.*
@@ -52,7 +55,7 @@ fun QrDetailSheet(
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {
-            // Header
+            // Header: Type Chip, Label / Rename & Close Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -78,7 +81,7 @@ fun QrDetailSheet(
                             onValueChange = { newLabel = it },
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
-                                IconButton(onClick = { 
+                                IconButton(onClick = {
                                     onRename(qr, newLabel)
                                     isRenaming = false
                                 }) {
@@ -90,7 +93,7 @@ fun QrDetailSheet(
                         Text(
                             text = qr.label ?: "QR Code",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp,
+                            fontSize = 20.sp,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurface
@@ -102,83 +105,386 @@ fun QrDetailSheet(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(14.dp))
 
-            // Metadata Row
+            // Metadata Row: Created, Uses, Last Used
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 MetadataItem(label = "Created", value = formatDate(qr.createdAt))
-                MetadataItem(label = "Uses", value = qr.usageCount.toString())
-                MetadataItem(label = "Last used", value = formatDate(qr.lastUsedAt))
+                MetadataItem(label = "Scans", value = qr.usageCount.toString())
+                MetadataItem(label = "Last Used", value = formatDate(qr.lastUsedAt))
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // Raw value box
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = qr.rawValue,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    maxLines = 5,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            // Primary Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = { onOpen(qr) },
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(20.dp), tint = Color.White)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Open", fontWeight = FontWeight.Bold, color = Color.White)
+            // Content-Specific Section
+            when (qr.type) {
+                QrTypeDetector.TYPE_PAYMENT -> {
+                    UpiDetailCard(
+                        rawValue = qr.rawValue,
+                        onPayClick = { onOpen(qr) }
+                    )
                 }
-                
-                Surface(
-                    onClick = { 
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("QR Value", qr.rawValue))
-                    },
-                    modifier = Modifier.size(54.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = MaterialTheme.colorScheme.onSurface)
-                    }
+                QrTypeDetector.TYPE_WIFI -> {
+                    WiFiDetailCard(
+                        rawValue = qr.rawValue,
+                        onConnectClick = { onOpen(qr) }
+                    )
+                }
+                QrTypeDetector.TYPE_URL -> {
+                    UrlDetailCard(
+                        url = qr.rawValue,
+                        onOpen = { onOpen(qr) }
+                    )
+                }
+                QrTypeDetector.TYPE_PHONE -> {
+                    PhoneDetailCard(
+                        phone = qr.rawValue,
+                        onDial = { onOpen(qr) }
+                    )
+                }
+                QrTypeDetector.TYPE_EMAIL -> {
+                    EmailDetailCard(
+                        email = qr.rawValue,
+                        onSend = { onOpen(qr) }
+                    )
+                }
+                else -> {
+                    TextDetailCard(
+                        text = qr.rawValue
+                    )
                 }
             }
 
             Spacer(Modifier.height(16.dp))
+            Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
 
             // Secondary Actions List
-            Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-            
             ActionRow(
-                icon = if (qr.isPinned) Icons.Default.PushPin else Icons.Default.PushPin, // Icons.Default.PushPinOut not available in default
+                icon = Icons.Default.PushPin,
                 label = if (qr.isPinned) "Unpin from top" else "Pin to top",
                 tint = if (qr.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 onClick = { onPinToggle(qr) }
             )
-            ActionRow(icon = Icons.Default.Edit, label = "Rename label", tint = MaterialTheme.colorScheme.onSurface, onClick = { isRenaming = true })
-            ActionRow(icon = Icons.Default.Share, label = "Share with others", tint = MaterialTheme.colorScheme.onSurface, onClick = { ActionUtils.shareText(context, qr.rawValue) })
-            ActionRow(icon = Icons.Default.Delete, label = "Delete forever", tint = MaterialTheme.colorScheme.error, onClick = { onDelete(qr) })
+            ActionRow(
+                icon = Icons.Default.Edit,
+                label = "Rename label",
+                tint = MaterialTheme.colorScheme.onSurface,
+                onClick = { isRenaming = true }
+            )
+            ActionRow(
+                icon = Icons.Default.Share,
+                label = "Share with others",
+                tint = MaterialTheme.colorScheme.onSurface,
+                onClick = { ActionUtils.shareText(context, qr.rawValue) }
+            )
+            ActionRow(
+                icon = Icons.Default.Delete,
+                label = "Delete scan",
+                tint = MaterialTheme.colorScheme.error,
+                onClick = { onDelete(qr) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun UpiDetailCard(
+    rawValue: String,
+    onPayClick: () -> Unit
+) {
+    val upi = remember(rawValue) { UpiPaymentParser.parse(rawValue) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (!upi.payeeName.isNullOrBlank()) {
+                Text(text = "Payee", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Text(text = upi.payeeName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Text(text = "UPI ID / VPA", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(text = upi.payeeVpa ?: "Not specified", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+
+            if (!upi.amount.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(text = "Amount", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Text(
+                    text = "${upi.currency ?: "INR"} ${upi.amount}",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (!upi.transactionRef.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(text = "Transaction Ref (tr)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Text(text = upi.transactionRef, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = onPayClick,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+            ) {
+                Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Pay with UPI App", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WiFiDetailCard(
+    rawValue: String,
+    onConnectClick: () -> Unit
+) {
+    val wifi = remember(rawValue) { WiFiQrParser.parse(rawValue) }
+    var passwordVisible by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Network Name (SSID)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(text = wifi.ssid, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+
+            Spacer(Modifier.height(8.dp))
+            Text(text = "Security Type", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(text = wifi.security, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+
+            if (wifi.password.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(text = "Password", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (passwordVisible) wifi.password else "••••••••",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = "Toggle password",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(onClick = {
+                            ActionUtils.copyToClipboard(context, "Wi-Fi Password", wifi.password)
+                        }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy password", modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onConnectClick,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Connect", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = { ActionUtils.copyToClipboard(context, "SSID", wifi.ssid) },
+                    modifier = Modifier.height(48.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Copy SSID")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UrlDetailCard(
+    url: String,
+    onOpen: () -> Unit
+) {
+    val context = LocalContext.current
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Web Address", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(
+                text = url,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onOpen,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Open Browser", fontWeight = FontWeight.Bold)
+                }
+                IconButton(
+                    onClick = { ActionUtils.copyToClipboard(context, "URL", url) },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy Link")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhoneDetailCard(
+    phone: String,
+    onDial: () -> Unit
+) {
+    val context = LocalContext.current
+    val cleanPhone = phone.removePrefix("tel:")
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Phone Number", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(text = cleanPhone, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onDial,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Call Number", fontWeight = FontWeight.Bold)
+                }
+                IconButton(
+                    onClick = { ActionUtils.copyToClipboard(context, "Phone Number", cleanPhone) },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmailDetailCard(
+    email: String,
+    onSend: () -> Unit
+) {
+    val context = LocalContext.current
+    val cleanEmail = email.removePrefix("mailto:").substringBefore("?")
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Email Address", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(text = cleanEmail, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onSend,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Send Email", fontWeight = FontWeight.Bold)
+                }
+                IconButton(
+                    onClick = { ActionUtils.copyToClipboard(context, "Email", cleanEmail) },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TextDetailCard(
+    text: String
+) {
+    val context = LocalContext.current
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Content", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(
+                text = text,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { ActionUtils.copyToClipboard(context, "Text Content", text) },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Copy Text", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = { ActionUtils.shareText(context, text) },
+                    modifier = Modifier.height(48.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Share")
+                }
+            }
         }
     }
 }
@@ -193,7 +499,7 @@ private fun MetadataItem(label: String, value: String) {
 
 @Composable
 private fun ActionRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     tint: Color = Color.Black,
     onClick: () -> Unit
@@ -204,7 +510,7 @@ private fun ActionRow(
         color = Color.Transparent
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 14.dp),
+            modifier = Modifier.padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))

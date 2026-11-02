@@ -27,7 +27,14 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
     val hapticEnabled by viewModel.hapticEnabled.collectAsStateWithLifecycle()
     val darkMode by viewModel.darkMode.collectAsStateWithLifecycle()
     
+    val context = androidx.compose.ui.platform.LocalContext.current
     var showClearHistoryDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel) {
+        viewModel.eventFlow.collect { message ->
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -98,8 +105,8 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
     if (showClearHistoryDialog) {
         AlertDialog(
             onDismissRequest = { showClearHistoryDialog = false },
-            title = { Text("Clear History?") },
-            text = { Text("Search labels, content and recent scans will be removed forever.") },
+            title = { Text("Clear All History?") },
+            text = { Text("This will permanently delete all saved scans, including your pinned and frequent items. This action cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = {

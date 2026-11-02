@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.scantrack.qr.data.local.entity.QrEntity
 import com.scantrack.qr.data.repository.QrRepository
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class HomeViewModel(private val repository: QrRepository) : ViewModel() {
@@ -20,31 +22,25 @@ class HomeViewModel(private val repository: QrRepository) : ViewModel() {
 
     fun togglePin(qr: QrEntity) {
         viewModelScope.launch {
-            repository.togglePin(qr)
+            repository.togglePin(qr.id, qr.isPinned)
         }
     }
 
     fun renameQr(qr: QrEntity, newLabel: String) {
         viewModelScope.launch {
-            repository.renameQr(qr, newLabel)
+            repository.renameQr(qr.id, newLabel)
         }
     }
 
     fun deleteQr(qr: QrEntity) {
         viewModelScope.launch {
-            repository.deleteQr(qr)
+            repository.deleteQrById(qr.id)
         }
     }
 
     fun markAsUsed(qr: QrEntity) {
         viewModelScope.launch {
-            repository.markQrUsed(qr)
-        }
-    }
-
-    fun onQrScanned(rawValue: String, type: String) {
-        viewModelScope.launch {
-            repository.saveOrUpdateQr(QrEntity(rawValue = rawValue, type = type))
+            repository.markQrUsed(qr.id)
         }
     }
 }

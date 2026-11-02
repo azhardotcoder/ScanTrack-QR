@@ -83,7 +83,7 @@ fun HistoryScreen(
             )
 
             // Filter Chips - Light Theme adjusted
-            val types = listOf("All", "URL", "PAYMENT", "WIFI", "TEXT")
+            val types = listOf("All", "URL", "PAYMENT", "WIFI", "EMAIL", "PHONE", "TEXT")
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -115,7 +115,7 @@ fun HistoryScreen(
                     contentPadding = PaddingValues(bottom = 140.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(historyItems) { qr ->
+                    items(historyItems, key = { it.id }) { qr ->
                         RecentScanCard(
                             title = qr.label ?: "QR Code",
                             time = formatTime(qr.lastUsedAt),
@@ -159,15 +159,4 @@ private fun EmptyHistory(isFiltered: Boolean) {
     }
 }
 
-private fun formatTime(timestamp: Long): String {
-    val diff = System.currentTimeMillis() - timestamp
-    return when {
-        diff < 60_000 -> "just now"
-        diff < 3600_000 -> "${diff / 60_000}m ago"
-        diff < 86400_000 -> "${diff / 3600_000}h ago"
-        else -> {
-            val sdf = SimpleDateFormat("MMM d", Locale.getDefault())
-            sdf.format(Date(timestamp))
-        }
-    }
-}
+private fun formatTime(timestamp: Long): String = com.scantrack.qr.presentation.utils.TimeUtils.formatRelativeTime(timestamp)

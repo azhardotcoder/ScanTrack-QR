@@ -4,19 +4,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.scantrack.qr.data.local.entity.QrEntity
 import com.scantrack.qr.data.repository.QrRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class HistoryViewModel(private val repository: QrRepository) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
-    val searchQuery = _searchQuery.asStateFlow()
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _selectedType = MutableStateFlow("All")
-    val selectedType = _selectedType.asStateFlow()
+    val selectedType: StateFlow<String> = _selectedType.asStateFlow()
 
     val historyItems: StateFlow<List<QrEntity>> = combine(
-        _searchQuery,
+        _searchQuery.debounce(300L),
         _selectedType
     ) { query, type ->
         Pair(query, type)
@@ -34,13 +37,13 @@ class HistoryViewModel(private val repository: QrRepository) : ViewModel() {
 
     fun togglePin(qr: QrEntity) {
         viewModelScope.launch {
-            repository.togglePin(qr)
+            repository.togglePin(qr.id, qr.isPinned)
         }
     }
 
     fun renameQr(qr: QrEntity, newLabel: String) {
         viewModelScope.launch {
-            repository.renameQr(qr, newLabel)
+            repository.renameQr(qr.id, newLabel)
         }
     }
 
@@ -52,7 +55,7 @@ class HistoryViewModel(private val repository: QrRepository) : ViewModel() {
 
     fun markAsUsed(qr: QrEntity) {
         viewModelScope.launch {
-            repository.markQrUsed(qr)
+            repository.markQrUsed(qr.id)
         }
     }
 }
