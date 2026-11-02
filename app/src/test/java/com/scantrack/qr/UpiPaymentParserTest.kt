@@ -61,6 +61,42 @@ class UpiPaymentParserTest {
     }
 
     @Test
+    fun parse_scientificNotationAmount_rejectsWithStrictValidation() {
+        val raw = "upi://pay?pa=user@upi&pn=Test&am=1e5"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("no scientific notation") == true)
+    }
+
+    @Test
+    fun parse_excessiveDecimalPlaces_returnsInvalid() {
+        val raw = "upi://pay?pa=user@upi&pn=Test&am=10.555"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("up to 2 decimal places") == true)
+    }
+
+    @Test
+    fun parse_overflowAmount_returnsInvalid() {
+        val raw = "upi://pay?pa=user@upi&pn=Test&am=999999999999.00"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("Invalid transaction amount") == true)
+    }
+
+    @Test
+    fun parse_malformedDecimal_missingLeadingDigit_returnsInvalid() {
+        val raw = "upi://pay?pa=user@upi&pn=Test&am=.50"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertFalse(result.isValid)
+        assertTrue(result.validationError?.contains("Invalid transaction amount") == true)
+    }
+
+    @Test
     fun parse_unsupportedScheme_returnsInvalid() {
         val raw = "https://pay.google.com/upi"
         val result = UpiPaymentParser.parse(raw)

@@ -99,4 +99,23 @@ class ScannerStateMachineTest {
         assertTrue(thirdState is ScanState.Result)
         assertEquals("https://third-scan-accepted.com", (thirdState as ScanState.Result).result.rawValue)
     }
+
+    @Test
+    fun asyncGalleryResult_withStaleSessionToken_isDroppedAfterReset() = runTest(testDispatcher) {
+        val viewModel = ScannerViewModel(repository = repository, hapticFlowOverride = flowOf(true))
+
+        // Capture session token before async task
+        val oldSessionToken = viewModel.getCurrentSessionToken()
+
+        // User leaves / resets scanner
+        viewModel.resetScanner()
+
+        // Async result arrives late from background thread with old session token
+        viewModel.onQrDetected("https://late-gallery-result.com", sessionToken = oldSessionToken)
+        testScheduler.advanceUntilIdle()
+
+        // Verify late result was ignored and scanner is still scanning
+        assertTrue(viewModel.scanState.value is ScanState.Scanning)
+        assertFalse(viewModel.scanState.value is ScanState.Result)
+    }
 }

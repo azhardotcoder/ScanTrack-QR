@@ -68,10 +68,14 @@ fun ScannerScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
+    var isScreenDisposed by remember { mutableStateOf(false) }
+
     // Reset scanner state on screen entry and exit
     DisposableEffect(Unit) {
+        isScreenDisposed = false
         viewModel.resetScanner()
         onDispose {
+            isScreenDisposed = true
             viewModel.resetScanner()
         }
     }
@@ -90,8 +94,15 @@ fun ScannerScreen(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri ->
             uri?.let {
-                processGalleryImage(context, it) { rawValue ->
-                    viewModel.onQrDetected(rawValue)
+                val sessionToken = viewModel.getCurrentSessionToken()
+                processGalleryImage(
+                    context = context,
+                    uri = it,
+                    isDisposed = { isScreenDisposed || viewModel.getCurrentSessionToken() != sessionToken }
+                ) { rawValue ->
+                    if (!isScreenDisposed && viewModel.getCurrentSessionToken() == sessionToken) {
+                        viewModel.onQrDetected(rawValue, sessionToken)
+                    }
                 }
             }
         }
@@ -193,10 +204,11 @@ fun ScannerScreen(
     }
 }
 
-/** ML Kit Processing for Gallery Images safely handled off the main thread */
+/** ML Kit Processing for Gallery Images safely handled off the main thread with lifecycle cancellation guard */
 private fun processGalleryImage(
     context: Context,
     uri: Uri,
+    isDisposed: () -> Boolean,
     onDetected: (String) -> Unit
 ) {
     try {
@@ -208,21 +220,28 @@ private fun processGalleryImage(
 
         scanner.process(image)
             .addOnSuccessListener { barcodes ->
+                if (isDisposed()) return@addOnSuccessListener
                 val detected = barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.rawValue
                 if (!detected.isNullOrBlank()) {
                     onDetected(detected)
                 } else {
-                    Toast.makeText(context, "No QR Code found in selected image", Toast.LENGTH_SHORT).show()
+                    if (!isDisposed()) {
+                        Toast.makeText(context, "No QR Code found in selected image", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             .addOnFailureListener {
-                Toast.makeText(context, "Failed to read image", Toast.LENGTH_SHORT).show()
+                if (!isDisposed()) {
+                    Toast.makeText(context, "Failed to read image", Toast.LENGTH_SHORT).show()
+                }
             }
             .addOnCompleteListener {
                 scanner.close()
             }
     } catch (e: Exception) {
-        Toast.makeText(context, "Could not open selected image", Toast.LENGTH_SHORT).show()
+        if (!isDisposed()) {
+            Toast.makeText(context, "Could not open selected image", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 

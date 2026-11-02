@@ -22,10 +22,6 @@ import com.scantrack.qr.data.parser.WiFiQrParser
 
 object ActionUtils {
 
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var activeWifiCallback: ConnectivityManager.NetworkCallback? = null
-    private var activeTimeoutRunnable: Runnable? = null
-
     /**
      * Unified handler to safely dispatch actions based on the detected QR type.
      * All actions require explicit user intent and never execute untrusted scripts or modify payment payloads.
@@ -130,7 +126,9 @@ object ActionUtils {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            connectToWifiApi29(context, wifiData)
+            WifiConnectionManager.connect(context, wifiData) { statusMessage ->
+                Toast.makeText(context, statusMessage, Toast.LENGTH_SHORT).show()
+            }
         } else {
             // Legacy Android: copy password and direct user to Settings
             copyToClipboard(context, "Wi-Fi Password", wifiData.password)
@@ -142,114 +140,11 @@ object ActionUtils {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
-    private fun connectToWifiApi29(context: Context, wifiData: com.scantrack.qr.data.parser.WiFiNetworkData) {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-
-        // Clean up any previously pending Wi-Fi connection request
-        cleanupActiveWifiRequest(connectivityManager)
-
-        try {
-            val specifierBuilder = WifiNetworkSpecifier.Builder()
-                .setSsid(wifiData.ssid)
-
-            if (wifiData.isHidden) {
-                specifierBuilder.setIsHiddenSsid(true)
-            }
-
-            when (wifiData.security) {
-                "WPA" -> {
-                    if (wifiData.password.isNotEmpty()) {
-                        specifierBuilder.setWpa2Passphrase(wifiData.password)
-                    }
-                }
-                "WPA3" -> {
-                    if (wifiData.password.isNotEmpty()) {
-                        specifierBuilder.setWpa3Passphrase(wifiData.password)
-                    }
-                }
-                "nopass" -> {
-                    // Open network - no passphrase needed
-                }
-                else -> {
-                    Toast.makeText(context, "Unsupported Wi-Fi security type: ${wifiData.security}", Toast.LENGTH_SHORT).show()
-                    return
-                }
-            }
-
-            val request = NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .setNetworkSpecifier(specifierBuilder.build())
-                .build()
-
-            var isConnectionEstablished = false
-
-            val networkCallback = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    super.onAvailable(network)
-                    isConnectionEstablished = true
-
-                    // Cancel pending timeout: KEEP the Wi-Fi connection active!
-                    activeTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-                    activeTimeoutRunnable = null
-
-                    mainHandler.post {
-                        Toast.makeText(context, "Connected to ${wifiData.ssid}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-
-                override fun onUnavailable() {
-                    super.onUnavailable()
-                    cleanupActiveWifiRequest(connectivityManager)
-                    mainHandler.post {
-                        Toast.makeText(context, "Could not connect to ${wifiData.ssid}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-
-                override fun onLost(network: Network) {
-                    super.onLost(network)
-                    cleanupActiveWifiRequest(connectivityManager)
-                    mainHandler.post {
-                        Toast.makeText(context, "Disconnected from ${wifiData.ssid}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-
-            activeWifiCallback = networkCallback
-
-            // Safe connection attempt timeout: 30 seconds only if NOT connected yet
-            val timeoutRunnable = Runnable {
-                if (!isConnectionEstablished && activeWifiCallback === networkCallback) {
-                    cleanupActiveWifiRequest(connectivityManager)
-                    Toast.makeText(context, "Wi-Fi connection attempt timed out", Toast.LENGTH_SHORT).show()
-                }
-            }
-            activeTimeoutRunnable = timeoutRunnable
-            mainHandler.postDelayed(timeoutRunnable, 30_000L)
-
-            connectivityManager.requestNetwork(request, networkCallback)
-            Toast.makeText(context, "Requesting connection to ${wifiData.ssid}...", Toast.LENGTH_SHORT).show()
-
-        } catch (e: SecurityException) {
-            cleanupActiveWifiRequest(connectivityManager)
-            Toast.makeText(context, "Wi-Fi network request permission denied by system", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            cleanupActiveWifiRequest(connectivityManager)
-            Toast.makeText(context, "Wi-Fi connection failed: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun cleanupActiveWifiRequest(connectivityManager: ConnectivityManager) {
-        activeTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-        activeTimeoutRunnable = null
-        activeWifiCallback?.let { callback ->
-            try {
-                connectivityManager.unregisterNetworkCallback(callback)
-            } catch (ignored: Exception) {
-            }
-        }
-        activeWifiCallback = null
+    /**
+     * Explicit disconnect/cancellation of active Wi-Fi connection request.
+     */
+    fun disconnectWifi(context: Context) {
+        WifiConnectionManager.disconnect(context)
     }
 
     fun copyToClipboard(context: Context, label: String, text: String) {

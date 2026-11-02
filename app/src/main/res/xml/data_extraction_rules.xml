@@ -7,10 +7,7 @@
         <exclude domain="database" path="scantrack_qr_db-shm" />
     </cloud-backup>
     <device-transfer>
-        <!-- Exclude scan history containing sensitive QR payloads (passwords, contacts) from device transfer -->
-        <exclude domain="database" path="scantrack_qr_db" />
-        <exclude domain="database" path="scantrack_qr_db-wal" />
-        <exclude domain="database" path="scantrack_qr_db-shm" />
+        <!-- Transfer only user preferences; scan history database with sensitive QR payloads is excluded -->
         <include domain="sharedpref" path="." />
     </device-transfer>
 </data-extraction-rules>

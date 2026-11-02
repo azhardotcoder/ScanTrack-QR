@@ -1,5 +1,6 @@
 package com.scantrack.qr.data.parser
 
+import java.math.BigDecimal
 import java.net.URLDecoder
 
 /**
@@ -124,10 +125,27 @@ object UpiPaymentParser {
                 )
             }
 
-            // Amount validation (if present, must be positive decimal)
+            // Strict BigDecimal Amount Validation:
+            // 1. Must match strict standard currency decimal format: digits only, optional dot with 1-2 digits
+            // 2. Rejects scientific notation (e.g. 1e5, 2E3), signs (+/-), NaN, infinity, and excessive fractional digits
+            // 3. Must be strictly positive and within valid transaction bounds
             if (!am.isNullOrBlank()) {
-                val parsedAmount = am.toDoubleOrNull()
-                if (parsedAmount == null || parsedAmount <= 0.0) {
+                val amountPattern = Regex("^[0-9]+(\\.[0-9]{1,2})?$")
+                val isFormatValid = amountPattern.matches(am)
+
+                val parsedAmount = if (isFormatValid) {
+                    try {
+                        BigDecimal(am)
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else {
+                    null
+                }
+
+                val maxTransactionLimit = BigDecimal("10000000.00") // 10,000,000 limit
+
+                if (parsedAmount == null || parsedAmount <= BigDecimal.ZERO || parsedAmount > maxTransactionLimit) {
                     return UpiPaymentData(
                         originalUri = rawUri,
                         payeeVpa = pa,
@@ -138,7 +156,7 @@ object UpiPaymentParser {
                         merchantCode = mc,
                         transactionNote = tn,
                         isValid = false,
-                        validationError = "Invalid transaction amount: $am"
+                        validationError = "Invalid transaction amount: $am (must be a positive decimal with up to 2 decimal places, no scientific notation)"
                     )
                 }
             }

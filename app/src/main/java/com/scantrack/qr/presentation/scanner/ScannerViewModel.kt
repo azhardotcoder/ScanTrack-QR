@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Legacy delegate for backward compatibility */
 fun detectQrType(rawValue: String): String = QrTypeDetector.detect(rawValue)
@@ -50,9 +51,19 @@ class ScannerViewModel(
     /** Concurrency lock: true when actively accepting QR detections */
     private val isAcceptingScans = AtomicBoolean(true)
 
-    fun onQrDetected(rawValue: String) {
+    /** Monotonically increasing session generation counter to drop stale async results */
+    private val sessionGeneration = AtomicLong(0)
+
+    fun getCurrentSessionToken(): Long = sessionGeneration.get()
+
+    fun onQrDetected(rawValue: String, sessionToken: Long? = null) {
         val trimmed = rawValue.trim()
         if (trimmed.isBlank()) return
+
+        // Verify session validity for async sources (e.g. gallery picker)
+        if (sessionToken != null && sessionToken != sessionGeneration.get()) {
+            return
+        }
 
         // State Machine check: Only process if in Scanning state and lock acquired
         if (!isAcceptingScans.compareAndSet(true, false)) {
@@ -89,12 +100,14 @@ class ScannerViewModel(
     }
 
     fun dismissResult() {
-        // Reset state machine to scanning mode
+        // Reset state machine to scanning mode and increment session generation
+        sessionGeneration.incrementAndGet()
         isAcceptingScans.set(true)
         _scanState.value = ScanState.Scanning
     }
 
     fun resetScanner() {
+        sessionGeneration.incrementAndGet()
         isAcceptingScans.set(true)
         _scanState.value = ScanState.Scanning
     }
