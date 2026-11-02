@@ -52,6 +52,18 @@ object ActionUtils {
     }
 
     /**
+     * Builds and validates the explicit Intent.ACTION_VIEW payment intent for a scanned UPI URI.
+     * Returns null if the payload is invalid according to strict NPCI UPI rules.
+     */
+    fun buildUpiPaymentIntent(originalUpiUri: String): Intent? {
+        val upiData = UpiPaymentParser.parse(originalUpiUri)
+        if (!upiData.isValid) return null
+        return Intent(Intent.ACTION_VIEW, Uri.parse(originalUpiUri)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    /**
      * Opens UPI Payment strictly preserving the original scanned URI.
      * Never removes merchant codes (mc), mode, or transaction references (tr),
      * and never converts merchant payments to P2P. Rejects ambiguous duplicate instructions.
@@ -85,9 +97,7 @@ object ActionUtils {
 
         try {
             // Preserve the original payment URI completely
-            val paymentIntent = Intent(Intent.ACTION_VIEW, Uri.parse(originalUpiUri)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
+            val paymentIntent = buildUpiPaymentIntent(originalUpiUri) ?: return
             val chooser = Intent.createChooser(paymentIntent, "Pay via UPI")
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(chooser)
