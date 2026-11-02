@@ -9,6 +9,10 @@ import java.net.URLDecoder
  * Adheres strictly to the NPCI Unified Payment Interface specification.
  * Preserves the original URI without stripping or downgrading merchant parameters (mc, mode, tr).
  * Rejects ambiguous instructions (e.g. duplicate query parameters, permissive URI schemes).
+ *
+ * Note: [hasMerchantMetadata] indicates the presence of merchant-associated fields (mc, mode, tid, orgid)
+ * in the scanned payload. It is NOT authoritative proof of acquirer onboarding, PSP whitelisting,
+ * or third-party intent payment eligibility.
  */
 data class UpiPaymentData(
     val originalUri: String,
@@ -22,9 +26,11 @@ data class UpiPaymentData(
     val mode: String? = null,
     val orgId: String? = null,
     val terminalId: String? = null,
-    val isMerchant: Boolean = false,
+    val hasMerchantMetadata: Boolean = false,
+    val isMerchant: Boolean = hasMerchantMetadata,
     val isValid: Boolean = false,
-    val validationError: String? = null
+    val validationError: String? = null,
+    val errorCode: String? = null
 )
 
 object UpiPaymentParser {
@@ -39,7 +45,8 @@ object UpiPaymentParser {
             return UpiPaymentData(
                 originalUri = rawUri,
                 isValid = false,
-                validationError = "Empty UPI payload"
+                validationError = "Empty UPI payload",
+                errorCode = "ERR_EMPTY_PAYLOAD"
             )
         }
 
@@ -50,7 +57,8 @@ object UpiPaymentParser {
             return UpiPaymentData(
                 originalUri = rawUri,
                 isValid = false,
-                validationError = "Invalid UPI URI: expected strict upi://pay scheme and authority"
+                validationError = "Invalid UPI URI: expected strict upi://pay scheme and authority",
+                errorCode = "ERR_INVALID_SCHEME"
             )
         }
 
@@ -66,7 +74,8 @@ object UpiPaymentParser {
                 return UpiPaymentData(
                     originalUri = rawUri,
                     isValid = false,
-                    validationError = "Missing payment parameters"
+                    validationError = "Missing payment parameters",
+                    errorCode = "ERR_MISSING_PARAMS"
                 )
             }
 
@@ -92,7 +101,8 @@ object UpiPaymentParser {
                     return UpiPaymentData(
                         originalUri = rawUri,
                         isValid = false,
-                        validationError = "Ambiguous payment instruction: duplicate '$key' parameter detected"
+                        validationError = "Ambiguous payment instruction: duplicate '$key' parameter detected",
+                        errorCode = "ERR_DUPLICATE_PARAM"
                     )
                 }
 
@@ -109,7 +119,7 @@ object UpiPaymentParser {
             val mode = queryParams["mode"]
             val orgId = queryParams["orgid"]
             val tid = queryParams["tid"]
-            val isMerchant = !mc.isNullOrBlank() || mode == "01" || mode == "02" || !tid.isNullOrBlank() || !orgId.isNullOrBlank()
+            val hasMerchantMeta = !mc.isNullOrBlank() || mode == "01" || mode == "02" || !tid.isNullOrBlank() || !orgId.isNullOrBlank()
 
             // Strict VPA (Virtual Payment Address) validation: name@handle
             // Must contain exactly one '@', no whitespace, and valid identifier characters
@@ -131,9 +141,11 @@ object UpiPaymentParser {
                     mode = mode,
                     orgId = orgId,
                     terminalId = tid,
-                    isMerchant = isMerchant,
+                    hasMerchantMetadata = hasMerchantMeta,
+                    isMerchant = hasMerchantMeta,
                     isValid = false,
-                    validationError = if (pa.isNullOrBlank()) "Missing payee UPI ID (pa)" else "Malformed payee UPI ID: $pa"
+                    validationError = if (pa.isNullOrBlank()) "Missing payee UPI ID (pa)" else "Malformed payee UPI ID: $pa",
+                    errorCode = if (pa.isNullOrBlank()) "ERR_MISSING_PA" else "ERR_MALFORMED_PA"
                 )
             }
 
@@ -167,8 +179,11 @@ object UpiPaymentParser {
                         transactionRef = tr,
                         merchantCode = mc,
                         transactionNote = tn,
+                        hasMerchantMetadata = hasMerchantMeta,
+                        isMerchant = hasMerchantMeta,
                         isValid = false,
-                        validationError = "Invalid transaction amount: $am (must be a positive decimal with up to 2 decimal places, no scientific notation)"
+                        validationError = "Invalid transaction amount: $am (must be a positive decimal with up to 2 decimal places, no scientific notation)",
+                        errorCode = "ERR_INVALID_AMOUNT"
                     )
                 }
             }
@@ -184,8 +199,11 @@ object UpiPaymentParser {
                     transactionRef = tr,
                     merchantCode = mc,
                     transactionNote = tn,
+                    hasMerchantMetadata = hasMerchantMeta,
+                    isMerchant = hasMerchantMeta,
                     isValid = false,
-                    validationError = "Invalid currency code: $cu"
+                    validationError = "Invalid currency code: $cu",
+                    errorCode = "ERR_INVALID_CURRENCY"
                 )
             }
 
@@ -201,14 +219,16 @@ object UpiPaymentParser {
                 mode = mode,
                 orgId = orgId,
                 terminalId = tid,
-                isMerchant = isMerchant,
+                hasMerchantMetadata = hasMerchantMeta,
+                isMerchant = hasMerchantMeta,
                 isValid = true
             )
         } catch (e: Exception) {
             UpiPaymentData(
                 originalUri = rawUri,
                 isValid = false,
-                validationError = "Failed to parse UPI URI: ${e.message}"
+                validationError = "Failed to parse UPI URI: ${e.message}",
+                errorCode = "ERR_PARSE_EXCEPTION"
             )
         }
     }

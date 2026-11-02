@@ -1,5 +1,6 @@
 package com.scantrack.qr.presentation.utils
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -53,14 +54,28 @@ object ActionUtils {
 
     /**
      * Builds and validates the explicit Intent.ACTION_VIEW payment intent for a scanned UPI URI.
-     * Returns null if the payload is invalid according to strict NPCI UPI rules.
+     * Preserves the original URI completely without rewriting, replacing, or fabricating fields.
+     * Does NOT force FLAG_ACTIVITY_NEW_TASK for activity-based / ActivityResult flows.
+     *
+     * @param originalUpiUri The raw scanned UPI URI.
+     * @param targetPackage Optional explicit package (e.g., for controlled test routing).
+     * @return Intent ready for dispatch, or null if validation fails.
      */
-    fun buildUpiPaymentIntent(originalUpiUri: String): Intent? {
+    fun buildUpiPaymentIntent(originalUpiUri: String, targetPackage: String? = null): Intent? {
         val upiData = UpiPaymentParser.parse(originalUpiUri)
         if (!upiData.isValid) return null
         return Intent(Intent.ACTION_VIEW, Uri.parse(originalUpiUri)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (!targetPackage.isNullOrBlank()) {
+                setPackage(targetPackage)
+            }
         }
+    }
+
+    /**
+     * Builds a chooser intent targeting UPI payment applications without forcing FLAG_ACTIVITY_NEW_TASK.
+     */
+    fun buildUpiChooserIntent(paymentIntent: Intent, title: CharSequence = "Pay via UPI"): Intent {
+        return Intent.createChooser(paymentIntent, title)
     }
 
     /**
@@ -68,10 +83,10 @@ object ActionUtils {
      * Never removes merchant codes (mc), mode, or transaction references (tr),
      * and never converts merchant payments to P2P. Rejects ambiguous duplicate instructions.
      */
-    fun openUpiPayment(context: Context, originalUpiUri: String) {
+    fun openUpiPayment(context: Context, originalUpiUri: String, targetPackage: String? = null) {
         val upiData = UpiPaymentParser.parse(originalUpiUri)
         if (!upiData.isValid) {
-            Log.w(TAG_UPI, "UPI payment validation failed: ${upiData.validationError}")
+            com.scantrack.qr.data.diagnostics.PaymentDiagnostics.recordValidationError(upiData.errorCode ?: "ERR_INVALID_PAYLOAD")
             Toast.makeText(
                 context,
                 upiData.validationError ?: "Invalid UPI payment format",
@@ -80,27 +95,29 @@ object ActionUtils {
             return
         }
 
-        // Privacy-safe diagnostic logging: never logs customer usernames, account tokens, or full VPA
-        val sanitizedVpaDomain = upiData.payeeVpa?.let { vpa ->
-            val atIndex = vpa.indexOf('@')
-            if (atIndex != -1 && atIndex < vpa.length - 1) {
-                "***@" + vpa.substring(atIndex + 1)
-            } else {
-                "***"
-            }
-        } ?: "unknown"
-
-        Log.i(
-            TAG_UPI,
-            "Dispatching payment intent: [isMerchant=${upiData.isMerchant}, mode=${upiData.mode ?: "standard"}, vpaDomain=$sanitizedVpaDomain, hasAmount=${upiData.amount != null}, currency=${upiData.currency ?: "INR"}]"
-        )
-
         try {
             // Preserve the original payment URI completely
-            val paymentIntent = buildUpiPaymentIntent(originalUpiUri) ?: return
-            val chooser = Intent.createChooser(paymentIntent, "Pay via UPI")
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(chooser)
+            val paymentIntent = buildUpiPaymentIntent(originalUpiUri, targetPackage) ?: return
+            val intentToLaunch = if (!targetPackage.isNullOrBlank()) {
+                paymentIntent
+            } else {
+                buildUpiChooserIntent(paymentIntent)
+            }
+
+            // In Android, starting an activity from a non-Activity context requires FLAG_ACTIVITY_NEW_TASK.
+            // For Activity contexts, we strictly omit it to preserve caller identity and result delivery.
+            if (context !is Activity) {
+                intentToLaunch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            com.scantrack.qr.data.diagnostics.PaymentDiagnostics.recordDispatch(
+                context = context,
+                upiData = upiData,
+                targetPackage = targetPackage,
+                flags = intentToLaunch.flags
+            )
+
+            context.startActivity(intentToLaunch)
 
             // Authoritative confirmation notice: Inform user to complete payment in external app
             Toast.makeText(

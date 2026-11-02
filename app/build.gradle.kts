@@ -19,6 +19,14 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        val gitSha = try {
+            val proc = ProcessBuilder("git", "rev-parse", "--short", "HEAD").start()
+            proc.inputStream.bufferedReader().readText().trim()
+        } catch (e: Exception) {
+            "unknown"
+        }
+        buildConfigField("String", "BUILD_COMMIT_SHA", "\"$gitSha\"")
     }
 
     buildTypes {
@@ -43,6 +51,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14" // Matches Kotlin 1.9.24

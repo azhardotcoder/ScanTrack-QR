@@ -19,11 +19,17 @@ import androidx.navigation.compose.rememberNavController
 import com.scantrack.qr.presentation.components.*
 import com.scantrack.qr.presentation.navigation.NavGraph
 import com.scantrack.qr.presentation.navigation.Screen
+import com.scantrack.qr.presentation.payment.LocalPaymentController
+import com.scantrack.qr.presentation.payment.PaymentLaunchController
 import com.scantrack.qr.presentation.theme.ScanTrackQRTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val paymentLaunchController = PaymentLaunchController(this)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        paymentLaunchController.register()
         enableEdgeToEdge()
         setContent {
             val app = application as ScanTrackApp
@@ -32,7 +38,11 @@ class MainActivity : ComponentActivity() {
             val reducedMotion = rememberReducedMotion()
             val darkTheme = when (darkMode) { "LIGHT" -> false; "DARK" -> true; else -> isSystemInDarkTheme() }
             ScanTrackQRTheme(darkTheme) {
-                CompositionLocalProvider(LocalHapticsEnabled provides hapticEnabled, LocalReduceMotion provides reducedMotion) {
+                CompositionLocalProvider(
+                    LocalHapticsEnabled provides hapticEnabled,
+                    LocalReduceMotion provides reducedMotion,
+                    LocalPaymentController provides paymentLaunchController
+                ) {
                     val navController = rememberNavController()
                     val entry by navController.currentBackStackEntryAsState()
                     val currentRoute = entry?.destination?.route

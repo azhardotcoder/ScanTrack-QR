@@ -34,6 +34,7 @@ import com.scantrack.qr.data.local.entity.QrEntity
 import com.scantrack.qr.data.parser.QrTypeDetector
 import com.scantrack.qr.data.parser.UpiPaymentParser
 import com.scantrack.qr.data.parser.WiFiQrParser
+import com.scantrack.qr.presentation.payment.LocalPaymentController
 import com.scantrack.qr.presentation.scanner.ScanResult
 import com.scantrack.qr.presentation.utils.ActionUtils
 import com.scantrack.qr.presentation.utils.TimeUtils
@@ -53,6 +54,8 @@ fun QrDetailSheet(
     if (qr == null) return
     val haptics = LocalHapticFeedback.current
     val hapticsEnabled = LocalHapticsEnabled.current
+    val paymentController = LocalPaymentController.current
+    val context = LocalContext.current
     var label by remember(qr.id, qr.label) { mutableStateOf(qrDisplayTitle(qr)) }
     var pinned by remember(qr.id, qr.isPinned) { mutableStateOf(qr.isPinned) }
     var renameVisible by remember(qr.id) { mutableStateOf(false) }
@@ -60,7 +63,13 @@ fun QrDetailSheet(
     var draftLabel by remember(qr.id) { mutableStateOf(label) }
 
     ResultSheetFrame(type = qr.type, title = label, onDismiss = onDismiss) {
-        QrContentDetails(rawValue = qr.rawValue, type = qr.type, onOpen = { onOpen(qr) })
+        QrContentDetails(rawValue = qr.rawValue, type = qr.type, onOpen = {
+            if (qr.type == QrTypeDetector.TYPE_PAYMENT && paymentController != null) {
+                paymentController.launchPayment(context, qr.rawValue)
+            } else {
+                onOpen(qr)
+            }
+        })
         ShareQrAction(rawValue = qr.rawValue, type = qr.type)
         Divider(color = MaterialTheme.colorScheme.outlineVariant)
         Text("Organize", style = MaterialTheme.typography.titleSmall)
@@ -128,6 +137,7 @@ fun QrDetailSheet(
 @Composable
 fun QRResultBottomSheet(result: ScanResult, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val paymentController = LocalPaymentController.current
     val entity = remember(result.rawValue) {
         QrEntity(rawValue = result.rawValue, label = result.label, type = result.type)
     }
@@ -140,7 +150,13 @@ fun QRResultBottomSheet(result: ScanResult, onDismiss: () -> Unit) {
         QrContentDetails(
             rawValue = result.rawValue,
             type = result.type,
-            onOpen = { ActionUtils.openQrContent(context, result.rawValue) }
+            onOpen = {
+                if (result.type == QrTypeDetector.TYPE_PAYMENT && paymentController != null) {
+                    paymentController.launchPayment(context, result.rawValue)
+                } else {
+                    ActionUtils.openQrContent(context, result.rawValue)
+                }
+            }
         )
         ShareQrAction(rawValue = result.rawValue, type = result.type)
         SecondaryActionButton(
@@ -254,9 +270,32 @@ private fun QrContentDetails(rawValue: String, type: String, onOpen: () -> Unit)
 @Composable
 private fun UpiDetailCard(rawValue: String, onContinue: () -> Unit) {
     val upi = remember(rawValue) { UpiPaymentParser.parse(rawValue) }
+    val paymentController = LocalPaymentController.current
+    val context = LocalContext.current
+    val inFlight = paymentController?.isPaymentInFlight?.value == true
+
     DetailContentCard {
-        Text(if (upi.isMerchant) "Merchant payment" else "UPI payment",
-            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text("UPI payment", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        if (upi.hasMerchantMetadata) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                Column(Modifier.padding(8.dp)) {
+                    Text(
+                        text = "Merchant Parameters Detected",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Contains merchant metadata (mode=${upi.mode ?: "standard"}, MCC=${upi.merchantCode ?: "-"}). Note: Acceptance over external app intent depends on your bank and UPI app policies.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
         DetailField("Payee name", upi.payeeName ?: "Not supplied", prominent = true)
         DetailField("UPI ID", upi.payeeVpa ?: "Not supplied")
         upi.amount?.takeIf { it.isNotBlank() }?.let { DetailField("Amount", it, prominent = true) }
@@ -272,8 +311,17 @@ private fun UpiDetailCard(rawValue: String, onContinue: () -> Unit) {
     Text("Confirm the payee and amount in your UPI app. ScanTrack does not verify the payee or confirm payment.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     PrimaryActionButton(
-        "Continue to UPI App", onContinue, Modifier.fillMaxWidth(), Icons.Outlined.AccountBalanceWallet,
-        enabled = upi.isValid
+        if (inFlight) "Opening UPI App..." else "Continue to UPI App",
+        onClick = {
+            if (paymentController != null) {
+                paymentController.launchPayment(context, rawValue)
+            } else {
+                onContinue()
+            }
+        },
+        Modifier.fillMaxWidth(),
+        Icons.Outlined.AccountBalanceWallet,
+        enabled = upi.isValid && !inFlight
     )
 }
 
