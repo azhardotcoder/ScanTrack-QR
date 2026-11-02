@@ -10,6 +10,9 @@
 .cxx
 local.properties
 
-# Build logs
+# Keystores & keys
+*.jks
+*.keystore
+/key/
 build_*.txt
 build_log.txt
