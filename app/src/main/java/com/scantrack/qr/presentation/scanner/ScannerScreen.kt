@@ -1,9 +1,9 @@
 package com.scantrack.qr.presentation.scanner
 
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -18,30 +18,41 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size as ComposeSize
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -51,45 +62,62 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
-import com.scantrack.qr.presentation.utils.ActionUtils
+import com.scantrack.qr.presentation.components.LocalHapticsEnabled
+import com.scantrack.qr.presentation.components.LocalReduceMotion
+import com.scantrack.qr.presentation.components.PrimaryActionButton
+import com.scantrack.qr.presentation.components.QRResultBottomSheet
+import com.scantrack.qr.presentation.components.SecondaryActionButton
 import java.util.concurrent.Executors
 
-@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun ScannerScreen(
     viewModel: ScannerViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    openGalleryOnEntry: Boolean = false
 ) {
     val scanState by viewModel.scanState.collectAsStateWithLifecycle()
     val isFlashOn by viewModel.isFlashOn.collectAsStateWithLifecycle()
     val hapticEnabled by viewModel.hapticEnabled.collectAsStateWithLifecycle()
-
-    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-
+    // A false rationale also describes a fresh install, not just permanent denial.
+    val permissionPreferences = remember(context) {
+        context.getSharedPreferences("scanner_permission_ui", Context.MODE_PRIVATE)
+    }
+    var hasRequestedCamera by rememberSaveable {
+        mutableStateOf(permissionPreferences.getBoolean("camera_requested", false))
+    }
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
     var isScreenDisposed by remember { mutableStateOf(false) }
+    var galleryOpenedOnEntry by rememberSaveable { mutableStateOf(false) }
+    var resultFeedbackDelivered by rememberSaveable { mutableStateOf(false) }
+    val activity = remember(context) { context.findActivity() }
+    val view = LocalView.current
+    val darkSystemIcons = !cameraPermissionState.status.isGranted &&
+        MaterialTheme.colorScheme.background.luminance() > 0.5f
+    SideEffect {
+        activity?.let {
+            WindowCompat.getInsetsController(it.window, view).apply {
+                isAppearanceLightStatusBars = darkSystemIcons
+                isAppearanceLightNavigationBars = darkSystemIcons
+            }
+        }
+    }
 
-    // Reset scanner state on screen entry and exit
     DisposableEffect(Unit) {
         isScreenDisposed = false
-        viewModel.resetScanner()
+        // A ViewModel result survives activity recreation until explicit dismissal.
+        if (viewModel.scanState.value !is ScanState.Result) viewModel.resetScanner()
         onDispose {
             isScreenDisposed = true
-            viewModel.resetScanner()
+            // Still invalidate pending gallery results when actually leaving.
+            if (activity?.isChangingConfigurations != true) viewModel.resetScanner()
         }
     }
 
-    // Automatic first-time permission prompt
-    var hasRequestedInitially by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        if (!cameraPermissionState.status.isGranted && !cameraPermissionState.status.shouldShowRationale && !hasRequestedInitially) {
-            hasRequestedInitially = true
-            cameraPermissionState.launchPermissionRequest()
-        }
-    }
-
-    // Gallery picker launcher - accessible at all times, independent of camera permission
+    // Gallery does not depend on camera permission. Keep the existing session
+    // guards so a late result cannot reach a different screen or scan session.
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri ->
@@ -107,104 +135,112 @@ fun ScannerScreen(
             }
         }
     )
-
-    // Trigger haptic feedback only once when transitioning into Result
+    val pickFromGallery: () -> Unit = {
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+    LaunchedEffect(openGalleryOnEntry) {
+        if (openGalleryOnEntry && !galleryOpenedOnEntry) {
+            galleryOpenedOnEntry = true
+            pickFromGallery()
+        }
+    }
     LaunchedEffect(scanState) {
-        if (scanState is ScanState.Result && hapticEnabled) {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (scanState is ScanState.Result) {
+            if (!resultFeedbackDelivered) {
+                resultFeedbackDelivered = true
+                if (hapticEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        } else {
+            resultFeedbackDelivered = false
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (cameraPermissionState.status.isGranted) {
-            // ---- Live Camera Preview -----
             CameraPreviewView(
                 isFlashOn = isFlashOn,
                 isScanningActive = scanState is ScanState.Scanning,
                 onQrDetected = { viewModel.onQrDetected(it) }
             )
-
-            // ---- Scanner frame & overlay ----
-            ScannerOverlay()
-
-            // ---- Top Bar: Back & Flash Controls ----
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ScannerControlButton(
-                    icon = Icons.Default.Close,
-                    onClick = onNavigateBack
+            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ScannerActionButton(
+                        icon = Icons.Outlined.ArrowBack,
+                        label = "Back",
+                        onClick = onNavigateBack
+                    )
+                    Text(
+                        "Scan QR",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                    )
+                    ScannerActionButton(
+                        icon = if (isFlashOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
+                        label = if (isFlashOn) "Turn flashlight off" else "Turn flashlight on",
+                        selected = isFlashOn,
+                        onClick = viewModel::toggleFlash
+                    )
+                }
+                ScannerOverlay(
+                    scanning = scanState is ScanState.Scanning,
+                    success = scanState is ScanState.Result,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
                 )
-                Text(
-                    text = "Scan QR Code",
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 18.sp
-                )
-                ScannerControlButton(
-                    icon = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                    onClick = { viewModel.toggleFlash() }
-                )
-            }
-
-            // ---- Center Hint ----
-            Text(
-                text = "Point at a QR code to scan",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset(y = 160.dp)
-            )
-
-            // ---- Bottom Controls (Gallery Picker) ----
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 60.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                ScannerControlButton(
-                    icon = Icons.Default.Image,
-                    onClick = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+                Column(
+                    modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        if (scanState is ScanState.Result) "QR captured" else "Place a QR code inside the frame",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                    OutlinedButton(
+                        onClick = pickFromGallery,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Outlined.PhotoLibrary, null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Scan from Gallery")
                     }
-                )
+                }
             }
         } else {
-            // Camera Permission Denied / Rationale View
             PermissionRationale(
-                shouldShowRationale = cameraPermissionState.status.shouldShowRationale,
-                onRequestPermission = { cameraPermissionState.launchPermissionRequest() },
-                onPickFromGallery = {
-                    photoPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
+                permanentlyDenied = hasRequestedCamera && !cameraPermissionState.status.shouldShowRationale,
+                onRequestPermission = {
+                    hasRequestedCamera = true
+                    permissionPreferences.edit().putBoolean("camera_requested", true).apply()
+                    cameraPermissionState.launchPermissionRequest()
                 },
+                onPickFromGallery = pickFromGallery,
                 onNavigateBack = onNavigateBack
             )
         }
-
-        // ---- Scan Result Bottom Sheet (Visible regardless of whether scanned via camera or gallery) ----
         if (scanState is ScanState.Result) {
-            val result = (scanState as ScanState.Result).result
-            ScanResultSheet(
-                result = result,
+            QRResultBottomSheet(
+                result = (scanState as ScanState.Result).result,
                 onDismiss = { viewModel.dismissResult() }
             )
         }
     }
 }
 
-/** ML Kit Processing for Gallery Images safely handled off the main thread with lifecycle cancellation guard */
+/** Existing ML Kit gallery processing with lifecycle and session cancellation guards. */
 private fun processGalleryImage(
     context: Context,
     uri: Uri,
@@ -245,6 +281,12 @@ private fun processGalleryImage(
     }
 }
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 private fun CameraPreviewView(
     isFlashOn: Boolean,
@@ -265,7 +307,7 @@ private fun CameraPreviewView(
 
     var camera by remember { mutableStateOf<Camera?>(null) }
 
-    LaunchedEffect(isFlashOn) {
+    LaunchedEffect(camera, isFlashOn) {
         try {
             camera?.cameraControl?.enableTorch(isFlashOn)
         } catch (ignored: Exception) {
@@ -375,289 +417,179 @@ private fun CameraPreviewView(
     }
 }
 
+/** Use the space left by the controls, including large font and landscape layouts. */
 @Composable
-private fun ScannerOverlay() {
-    val frameSize = 260.dp
-    val infiniteTransition = rememberInfiniteTransition(label = "scanLine")
-    val scanLineY by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scanLineY"
-    )
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.35f)
-                .background(Color.Black.copy(alpha = 0.6f))
+private fun ScannerOverlay(
+    scanning: Boolean,
+    success: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val reduceMotion = LocalReduceMotion.current
+    val progress: State<Float> = if (scanning && !reduceMotion) {
+        val transition = rememberInfiniteTransition(label = "scanner sweep")
+        transition.animateFloat(
+            initialValue = 0.08f,
+            targetValue = 0.92f,
+            animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "scan line position"
         )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.35f)
-                .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.6f))
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxHeight(0.30f)
-                .width((LocalContext.current.resources.displayMetrics.widthPixels / LocalContext.current.resources.displayMetrics.density).dp)
-                .align(Alignment.Center)
-        ) {
-            // Scanning box cutout frame
-            Box(
-                modifier = Modifier
-                    .size(frameSize)
-                    .align(Alignment.Center)
-                    .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(24.dp))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .offset(y = (frameSize * scanLineY))
-                        .background(Color(0xFF2563EB))
-                )
-            }
+    } else {
+        rememberUpdatedState(0.5f)
+    }
+    Canvas(modifier = modifier.semantics { contentDescription = "QR scanning area" }) {
+        val side = minOf(size.width - 48.dp.toPx(), size.height - 32.dp.toPx(), 320.dp.toPx())
+            .coerceAtLeast(0f)
+        val left = (size.width - side) / 2f
+        val top = (size.height - side) / 2f
+        val right = left + side
+        val bottom = top + side
+        val scrim = Color.Black.copy(alpha = 0.55f)
+        drawRect(scrim, size = ComposeSize(size.width, top))
+        drawRect(scrim, Offset(0f, bottom), ComposeSize(size.width, size.height - bottom))
+        drawRect(scrim, Offset(0f, top), ComposeSize(left, side))
+        drawRect(scrim, Offset(right, top), ComposeSize(size.width - right, side))
+        val corner = minOf(28.dp.toPx(), side / 4f)
+        val radius = minOf(14.dp.toPx(), corner / 2f)
+        val outline = if (success) Color(0xFF6EE7B7) else Color.White
+        val corners = Path().apply {
+            moveTo(left, top + corner)
+            lineTo(left, top + radius)
+            quadraticBezierTo(left, top, left + radius, top)
+            lineTo(left + corner, top)
+            moveTo(right - corner, top)
+            lineTo(right - radius, top)
+            quadraticBezierTo(right, top, right, top + radius)
+            lineTo(right, top + corner)
+            moveTo(right, bottom - corner)
+            lineTo(right, bottom - radius)
+            quadraticBezierTo(right, bottom, right - radius, bottom)
+            lineTo(right - corner, bottom)
+            moveTo(left + corner, bottom)
+            lineTo(left + radius, bottom)
+            quadraticBezierTo(left, bottom, left, bottom - radius)
+            lineTo(left, bottom - corner)
+        }
+        drawPath(corners, outline, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+        if (scanning && side > 0f) {
+            val y = top + side * progress.value
+            drawLine(
+                color = Color(0xFF9DB8FF).copy(alpha = 0.8f),
+                start = Offset(left + 14.dp.toPx(), y),
+                end = Offset(right - 14.dp.toPx(), y),
+                strokeWidth = 2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
         }
     }
 }
 
+/** A 48 dp control with ripple, an explicit label, and a spoken toggle state. */
 @Composable
-private fun ScannerControlButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
+fun ScannerActionButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean? = null
 ) {
+    val haptic = LocalHapticFeedback.current
+    val hapticsEnabled = LocalHapticsEnabled.current
     Surface(
-        onClick = onClick,
-        modifier = Modifier.size(44.dp),
+        onClick = {
+            if (hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
+        modifier = modifier.size(48.dp).semantics {
+            if (selected != null) stateDescription = if (selected) "On" else "Off"
+        },
         shape = CircleShape,
-        color = Color.White.copy(alpha = 0.15f)
+        color = if (selected == true) Color.White else Color(0xFF242B38),
+        contentColor = if (selected == true) Color(0xFF111827) else Color.White
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ScanResultSheet(
-    result: ScanResult,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Surface(
-                        color = Color(0xFF2563EB).copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text(
-                            text = result.type,
-                            color = Color(0xFF2563EB),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = result.label,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = result.rawValue,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = {
-                        onDismiss()
-                        ActionUtils.openQrContent(context, result.rawValue)
-                    },
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Open", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                }
-
-                Button(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("QR Value", result.rawValue))
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    )
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Copy", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) {
-                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Scan Another")
-            }
+            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
         }
     }
 }
 
 @Composable
-private fun PermissionRationale(
-    shouldShowRationale: Boolean,
+internal fun PermissionRationale(
+    permanentlyDenied: Boolean,
     onRequestPermission: () -> Unit,
     onPickFromGallery: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
-
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black),
-        contentAlignment = Alignment.Center
+    Column(
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding().verticalScroll(rememberScrollState())
     ) {
-        IconButton(
-            onClick = onNavigateBack,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(16.dp)
-        ) {
-            Icon(Icons.Default.Close, contentDescription = "Back", tint = Color.White)
+        IconButton(onClick = onNavigateBack, modifier = Modifier.padding(12.dp)) {
+            Icon(Icons.Outlined.ArrowBack, contentDescription = "Back")
         }
-
         Column(
+            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth()
+                .align(Alignment.CenterHorizontally).padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Icon(
-                Icons.Default.CameraAlt,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.6f),
-                modifier = Modifier.size(72.dp)
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(88.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.QrCodeScanner, null, modifier = Modifier.size(40.dp))
+                }
+            }
+            Text(
+                "A little access.\nA lot less typing.",
+                style = MaterialTheme.typography.headlineMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                "Camera Access Needed",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 22.sp,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                "Camera permission is required for live viewfinder scanning. Alternatively, you can scan QR codes directly from your photos without camera access.",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp,
-                lineHeight = 22.sp,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            Button(
-                onClick = {
-                    if (shouldShowRationale) {
-                        onRequestPermission()
-                    } else {
-                        // Open system settings if permanently denied
-                        try {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.fromParts("package", context.packageName, null)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            onRequestPermission()
-                        }
-                    }
+                if (permanentlyDenied) {
+                    "Camera access is turned off. Enable it in app settings to scan with your camera, or choose a QR image from your gallery."
+                } else {
+                    "Allow camera access to scan QR codes. You can also choose a QR image from your gallery without camera permission."
                 },
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                modifier = Modifier.fillMaxWidth().height(48.dp)
-            ) {
-                Text(
-                    if (shouldShowRationale) "Allow Camera Access" else "Open App Settings",
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            OutlinedButton(
-                onClick = onPickFromGallery,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                modifier = Modifier.fillMaxWidth().height(48.dp)
-            ) {
-                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Scan from Gallery", fontWeight = FontWeight.SemiBold)
-            }
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            PrimaryActionButton(
+                text = if (permanentlyDenied) "Open Settings" else "Allow Camera",
+                icon = Icons.Outlined.CameraAlt,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    if (permanentlyDenied) {
+                        try {
+                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                            })
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "Open this app's permissions in Android Settings", Toast.LENGTH_LONG).show()
+                        }
+                    } else {
+                        onRequestPermission()
+                    }
+                }
+            )
+            SecondaryActionButton(
+                text = "Scan from Gallery",
+                icon = Icons.Outlined.PhotoLibrary,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onPickFromGallery
+            )
+            Text(
+                "Your scans stay on this device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

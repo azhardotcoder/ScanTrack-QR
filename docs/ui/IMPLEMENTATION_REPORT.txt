@@ -1,0 +1,112 @@
+SCANTRACK QR — PREMIUM UI IMPLEMENTATION REPORT
+Date: 2 November 2026
+Branch: feat/scantrack-premium-ui
+Base: fix/scantrack-production-hardening at 973d6b6
+
+OUTCOME
+Implemented the redesign in the existing Kotlin / Jetpack Compose application.
+Home, Scanner, all six result types, History, navigation and Settings now share
+semantic light/dark colors, typography, spacing, shapes and outlined icons.
+No mock records are added to the shipped application.
+
+BEFORE / AFTER AUDIT
+- The floating three-control dock had no Home destination and arbitrary bottom
+  padding. A safe-area-aware Home / History / Scan / Settings navigation replaces
+  it, with saved tab state and a two-row arrangement at large accessibility text.
+- Home used fixed-height cards, an unrelated settings icon for its empty state,
+  repeated frequent records and no direct gallery action. Home now has explicit
+  camera/gallery actions, real pinned cards, lightweight frequent items, typed
+  recent records, relative times, protected Wi-Fi previews and useful empty states.
+- The scanner used a fixed 260dp box and hardcoded control offsets. Its adaptive
+  canvas now draws four corners, a precise outer scrim and a lightweight sweep;
+  controls use insets and accessible labels. Motion follows system settings.
+- Fresh scanner results displayed raw content, including Wi-Fi credentials.
+  Camera/gallery detections and saved records now share scrolling content-aware
+  sheets with masked Wi-Fi, UPI identity/validation, full URL destination, dial,
+  email, expandable text, copy/share and explicit destructive confirmation.
+- Settings did not scroll and lacked About details. It now has grouped appearance,
+  scanner, data and About sections, accessible radio/switch rows, real app version,
+  accurate local-storage information and the existing project's source link.
+
+SHARED COMPONENTS / TOKENS
+AppSpacing, semantic color schemes, complete type hierarchy, Material shapes,
+AppTopBar, PrimaryActionButton, SecondaryActionButton, PremiumCard, QRTypeBadge,
+QrTypeIcon, QRHistoryItem, PinnedQrCard, EmptyState, SearchBar, QRFilterChip,
+ConfirmationDialog, LoadingState, ScannerActionButton, PremiumBottomNavigation,
+QRResultBottomSheet, shared result content and metadata/actions.
+LocalHapticsEnabled and LocalReduceMotion centralize preference-aware behavior.
+
+SCANNER INTEGRATION FIXES
+- Torch state applies after asynchronous camera binding.
+- Gallery entry from Home opens independently of camera permission.
+- First request and repeated denial offer the appropriate Allow/Settings action.
+- Results survive activity configuration recreation until explicitly dismissed.
+- Success haptic delivery is retained across recreation to avoid duplicates.
+- Permission screens use theme-appropriate system-bar icon contrast.
+Camera resource/analyzer bodies, gallery session guards and detection state machine
+remain intact. Opening a content action does not dismiss the captured result.
+
+PRESERVED CORE
+Verified no diff in QR/UPI/Wi-Fi parsers, ActionUtils, WifiConnectionManager,
+ScannerViewModel, repository/DAO/entity, Room database/schema/migrations, manifest,
+network permissions, backup/data extraction configuration or security controls.
+Original payment URIs and merchant parameters pass to the existing handler.
+No automatic link opening or payment dispatch; no payment-success/verification claim.
+No runtime SDK, analytics or internet permission added. Application version unchanged.
+
+VALIDATION
+- Debug APK and minified/shrunk release APK build successfully.
+- 61 unit tests pass: existing 58 plus 3 presentation/privacy regressions.
+- 19 instrumented tests pass on Pixel_9a emulator, Android 17 / API37 / 16KB pages:
+  16 focused Compose regressions, existing migration/context tests and capture suite.
+- Android lint: 0 errors, 82 warnings (dependency/catalog, launcher/resource and existing SDK checks).
+- git diff --check passes.
+- 90 instrumentation screenshots: 26 full phone scenarios plus 8 representative
+  views at each of 8 configurations: 320x640, 360x800, 393x852, 430x932, 600x960,
+  840x1120, landscape 840x430, and 320x800 at 200% text (all dimensions dp).
+- Captures reviewed for correct state, contrast, text wrapping, spacing, scrolling,
+  navigation separation, masked credentials and reachable primary actions.
+  Large-text Home/permission actions and navigation also have executable UI tests.
+- Baseline and runtime screenshots accompany the capture suite. Runtime checks:
+  actual ML Kit gallery decode of URL, merchant UPI and Wi-Fi with camera denied;
+  real first/second denial UI; live camera preview; UPI result retained on resize;
+  scanned records retained after APK replacement; pin/unpin label state, rename with
+  the software keyboard, persisted label/pin and debounced search of the renamed
+  record. All data was test data inside a
+  read-only emulator session. The production database was not seeded by UI fixtures.
+- Sampled design-token text contrasts exceed 4.5:1. Scanner animation reads state
+  in Canvas drawing; lists use stable keys and lazy rendering. No FPS, memory or
+  throughput improvement is claimed because those metrics were not profiled.
+
+TEST TOOLING
+Added Compose instrumentation support, current stable AndroidX test input support,
+and corrected an existing sample context assertion using the obsolete package.
+CI now includes the requested feat/** branch prefix. Runtime dependencies unchanged.
+Compatibility reference: https://developer.android.com/jetpack/androidx/releases/test#espresso-3.7.0
+
+EVIDENCE / REPRODUCTION
+Open index.html for native screenshots grouped by runtime flow and device width.
+screenshots/premium-ui-overview.jpg is a compact preview. Original PNG files remain
+available at full resolution; contact sheets help compare configurations.
+Build/test commands:
+  .\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug
+  .\gradlew.bat :app:assembleRelease
+  adb install -r app/build/outputs/apk/debug/app-debug.apk
+  adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+  adb shell am instrument -w -r -e qaPrefix phone393 com.scantrack.qr.test/androidx.test.runner.AndroidJUnitRunner
+  .\docs\ui\capture-layouts.ps1
+The matrix script temporarily changes emulator display/font settings and restores
+prior values. Instrumented screenshots use production composables in a test host
+with UI-only fixtures. Runtime screenshots show the actual MainActivity. Only test
+capture code waits for presented frames; no artificial app loading delay is added.
+
+LIMITATIONS / RELEASE RECOMMENDATION
+Ready for feature review and internal testing. Do not promote straight to a public
+release without physical-device camera/torch, real Wi-Fi connection and UPI-app
+handoff checks, older Android runtime coverage and TalkBack manual testing.
+Landscape action captures show a scrolling viewport; not every final secondary
+row is visible in each still. Source/Compose tests verify the scrolling behavior.
+The original synchronous InputImage.fromFilePath gallery loading is unchanged;
+very large gallery-image performance has not been profiled. Device memory and
+60FPS operation are not certified. Release APK is unsigned; no release signing,
+store upload or merge to main was performed.

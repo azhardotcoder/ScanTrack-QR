@@ -1,0 +1,9 @@
+Captured 320dp
+Captured 360dp
+Captured 393dp
+Captured 430dp
+Captured 600dp
+Captured 840dp
+Captured landscape
+Captured 320dp-font200
+/sdcard/Android/data/com.scantrack.qr/files/ui-qa/./: 90 files pulled, 0 skipped. 17.4 MB/s (9632526 bytes in 0.529s)

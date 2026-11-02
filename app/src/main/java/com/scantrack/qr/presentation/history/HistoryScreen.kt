@@ -4,140 +4,64 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.scantrack.qr.data.local.entity.QrEntity
 import com.scantrack.qr.presentation.components.*
 import com.scantrack.qr.presentation.utils.ActionUtils
-import java.text.SimpleDateFormat
-import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(
-    viewModel: HistoryViewModel,
-    onNavigateBack: () -> Unit
-) {
+fun HistoryScreen(viewModel: HistoryViewModel, onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedType by viewModel.selectedType.collectAsStateWithLifecycle()
     val historyItems by viewModel.historyItems.collectAsStateWithLifecycle()
-    
-    var selectedQrForDetail by remember { mutableStateOf<QrEntity?>(null) }
+    var selectedQr by remember { mutableStateOf<QrEntity?>(null) }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)
-    ) {
-        // Top Navigation row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
-            }
-            Text(
-                text = "History",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
-                modifier = Modifier.padding(start = 8.dp)
-            )
-        }
-
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // Search Bar - High Fidelity Glass
-            TextField(
-                value = searchQuery,
-                onValueChange = { viewModel.onSearchQueryChanged(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                placeholder = { Text("Search labels or content...", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)) },
-                shape = RoundedCornerShape(16.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), // reduced alpha for "pure dark" blend
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                )
-            )
-
-            // Filter Chips - Light Theme adjusted
-            val types = listOf("All", "URL", "PAYMENT", "WIFI", "EMAIL", "PHONE", "TEXT")
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                items(types) { type ->
-                    FilterChip(
-                        selected = selectedType == type,
-                        onClick = { viewModel.onTypeSelected(type) },
-                        label = { Text(type, fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = Color.White,
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        ),
-                        border = null,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-            }
-
-            // History List
-            if (historyItems.isEmpty()) {
-                EmptyHistory(searchQuery.isNotEmpty() || selectedType != "All")
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 140.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(historyItems, key = { it.id }) { qr ->
-                        RecentScanCard(
-                            title = qr.label ?: "QR Code",
-                            time = formatTime(qr.lastUsedAt),
-                            onClick = { selectedQrForDetail = qr }
-                        )
-                    }
-                }
-            }
+    // Refresh an open sheet after Room emits an updated label, pin, or usage count.
+    LaunchedEffect(historyItems) {
+        selectedQr?.let { selected ->
+            historyItems.firstOrNull { it.id == selected.id }?.let { selectedQr = it }
         }
     }
 
-    if (selectedQrForDetail != null) {
+    HistoryScreenContent(
+        historyItems = historyItems,
+        searchQuery = searchQuery,
+        selectedType = selectedType,
+        onQueryChange = viewModel::onSearchQueryChanged,
+        onTypeSelected = viewModel::onTypeSelected,
+        onQrClick = { selectedQr = it },
+        onNavigateBack = onNavigateBack
+    )
+
+    selectedQr?.let { qr ->
         QrDetailSheet(
-            qr = selectedQrForDetail,
-            onDismiss = { selectedQrForDetail = null },
-            onPinToggle = { viewModel.togglePin(it) },
-            onRename = { entity, label -> viewModel.renameQr(entity, label) },
-            onDelete = { 
-                viewModel.deleteQrById(it.id)
-                selectedQrForDetail = null
+            qr = qr,
+            onDismiss = { selectedQr = null },
+            onPinToggle = {
+                viewModel.togglePin(it)
+                selectedQr = it.copy(isPinned = !it.isPinned)
             },
-            onOpen = { 
+            onRename = { entity, label ->
+                viewModel.renameQr(entity, label)
+                selectedQr = entity.copy(label = label.trim())
+            },
+            onDelete = {
+                viewModel.deleteQrById(it.id)
+                selectedQr = null
+            },
+            onOpen = {
                 viewModel.markAsUsed(it)
                 ActionUtils.openQrContent(context, it.rawValue)
             }
@@ -145,18 +69,90 @@ fun HistoryScreen(
     }
 }
 
+/** One lazy scroll surface keeps search and actions reachable even in a short window. */
 @Composable
-private fun EmptyHistory(isFiltered: Boolean) {
-    Box(modifier = Modifier.fillMaxSize().padding(bottom = 100.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = if (isFiltered) "No matches found" else "No history yet",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
-            )
+fun HistoryScreenContent(
+    historyItems: List<QrEntity>,
+    searchQuery: String,
+    selectedType: String,
+    onQueryChange: (String) -> Unit,
+    onTypeSelected: (String) -> Unit,
+    onQrClick: (QrEntity) -> Unit,
+    onNavigateBack: () -> Unit
+) {
+    val isFiltered = searchQuery.isNotBlank() || selectedType != "All"
+    val filters = listOf(
+        "All" to "All", "URL" to "URL", "PAYMENT" to "Payment",
+        "WIFI" to "Wi-Fi", "PHONE" to "Phone", "EMAIL" to "Email", "TEXT" to "Text"
+    )
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier.widthIn(max = 840.dp).fillMaxSize().imePadding().testTag("history-list"),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(key = "heading") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        AppTopBar("History", "A place for everything you've scanned.")
+                    }
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Outlined.ArrowBack, contentDescription = "Back to Home")
+                    }
+                }
+            }
+            item(key = "search") {
+                SearchBar(query = searchQuery, onQueryChange = onQueryChange)
+            }
+            item(key = "filters") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(filters, key = { it.first }) { (value, label) ->
+                        QRFilterChip(
+                            label = label,
+                            selected = selectedType == value,
+                            onClick = { onTypeSelected(value) }
+                        )
+                    }
+                }
+            }
+            item(key = "count") {
+                Text(
+                    text = if (isFiltered) {
+                        "${historyItems.size} ${if (historyItems.size == 1) "result" else "results"}"
+                    } else {
+                        "${historyItems.size} saved ${if (historyItems.size == 1) "scan" else "scans"}"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (historyItems.isEmpty()) {
+                item(key = "empty") {
+                    EmptyState(
+                        title = if (isFiltered) "No matching scans" else "Your history starts here",
+                        message = if (isFiltered) {
+                            "Try another search or choose a different type."
+                        } else {
+                            "Scan a QR code or choose one from your gallery. It will be saved here for next time."
+                        },
+                        icon = if (isFiltered) Icons.Outlined.SearchOff else Icons.Outlined.History,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        actions = {
+                            if (isFiltered) {
+                                TextButton(onClick = {
+                                    onQueryChange("")
+                                    onTypeSelected("All")
+                                }) { Text("Clear filters") }
+                            }
+                        }
+                    )
+                }
+            } else {
+                items(historyItems, key = { "qr-${it.id}" }, contentType = { "qr" }) { qr ->
+                    QRHistoryItem(qr = qr, onClick = { onQrClick(qr) })
+                }
+            }
         }
     }
 }
-
-private fun formatTime(timestamp: Long): String = com.scantrack.qr.presentation.utils.TimeUtils.formatRelativeTime(timestamp)

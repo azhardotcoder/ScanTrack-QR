@@ -1,0 +1,34 @@
+{
+  "date": "2026-11-02",
+  "branch": "feat/scantrack-premium-ui",
+  "base": "973d6b6",
+  "unitTests": {
+    "failed": 0,
+    "passed": 61
+  },
+  "instrumentedTests": {
+    "failed": 0,
+    "passed": 19
+  },
+  "lint": {
+    "warnings": 82,
+    "errors": 0
+  },
+  "debugBuild": "passed",
+  "releaseBuild": "passed; unsigned",
+  "emulator": {
+    "api": 37,
+    "pageSize": "16KB",
+    "readOnly": true,
+    "name": "Pixel_9a",
+    "android": "17"
+  },
+  "screenshots": {
+    "instrumented": 90,
+    "matrixViewsPerConfiguration": 8,
+    "matrixConfigurations": 8,
+    "fullPhoneSuite": 26
+  },
+  "coreDiff": "none in parsers, data, scanner ViewModel, ActionUtils/WiFi manager, manifest or privacy XML",
+  "releaseRecommendation": "Internal testing; physical-device camera/WiFi/UPI and older Android verification required"
+}

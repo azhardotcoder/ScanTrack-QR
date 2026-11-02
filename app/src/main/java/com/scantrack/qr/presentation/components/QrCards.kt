@@ -1,205 +1,120 @@
 package com.scantrack.qr.presentation.components
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.QrCode
-import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.scantrack.qr.data.local.entity.QrEntity
+import com.scantrack.qr.data.parser.QrTypeDetector
+import com.scantrack.qr.data.parser.UpiPaymentParser
+import com.scantrack.qr.data.parser.WiFiQrParser
+import com.scantrack.qr.presentation.utils.TimeUtils
+
+fun qrTypeLabel(type: String): String = when (type) {
+    "URL" -> "URL"
+    "PAYMENT" -> "UPI payment"
+    "WIFI" -> "Wi-Fi"
+    "PHONE" -> "Phone"
+    "EMAIL" -> "Email"
+    else -> "Text"
+}
+
+private fun qrTypeVector(type: String): ImageVector = when (type) {
+    "URL" -> Icons.Outlined.Language
+    "PAYMENT" -> Icons.Outlined.AccountBalanceWallet
+    "WIFI" -> Icons.Outlined.Wifi
+    "PHONE" -> Icons.Outlined.Phone
+    "EMAIL" -> Icons.Outlined.MailOutline
+    else -> Icons.Outlined.Notes
+}
 
 @Composable
-fun PinnedQrCard(
-    title: String,
-    iconColor: Color,
-    onClick: () -> Unit = {}
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "scale")
+fun qrTypeColor(type: String): Color {
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    return when (type) {
+        "URL" -> MaterialTheme.colorScheme.primary
+        "PAYMENT" -> MaterialTheme.colorScheme.secondary
+        "WIFI" -> MaterialTheme.colorScheme.tertiary
+        "PHONE" -> if (dark) Color(0xFFBDB5FF) else Color(0xFF6650A4)
+        "EMAIL" -> if (dark) Color(0xFF80D6E8) else Color(0xFF00687A)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
 
-    Surface(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        modifier = Modifier
-            .width(160.dp)
-            .height(56.dp)
-            .graphicsLayer(scaleX = scale, scaleY = scale),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 0.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(iconColor, RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCode2,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                )
-            }
+fun qrDisplayTitle(qr: QrEntity): String = qr.label?.takeIf { it.isNotBlank() }
+    ?: QrTypeDetector.deriveLabel(qr.rawValue, qr.type)
+
+/** List previews intentionally never include a Wi-Fi payload or password. */
+fun qrContentPreview(qr: QrEntity): String = when (qr.type) {
+    "WIFI" -> WiFiQrParser.parse(qr.rawValue).let { "${it.ssid.ifBlank { "Wi-Fi network" }} · ${it.security}" }
+    "PAYMENT" -> UpiPaymentParser.parse(qr.rawValue).let { it.payeeVpa ?: "Review payment details" }
+    "PHONE" -> qr.rawValue.substringAfter(':', qr.rawValue)
+    "EMAIL" -> qr.rawValue.substringAfter(':', qr.rawValue).substringBefore('?')
+    else -> qr.rawValue.replace('\n', ' ').replace('\r', ' ')
+}
+
+@Composable
+fun QrTypeIcon(type: String, modifier: Modifier = Modifier) {
+    val color = qrTypeColor(type)
+    Surface(modifier = modifier, color = color.copy(alpha = 0.12f), shape = MaterialTheme.shapes.medium) {
+        Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+            Icon(qrTypeVector(type), null, Modifier.size(23.dp), tint = color)
         }
     }
 }
 
 @Composable
-fun QuickAccessCard(
-    title: String,
-    backgroundColor: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit = {}
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "scale")
+fun QRTypeBadge(type: String) {
+    val color = qrTypeColor(type)
+    Surface(color = color.copy(alpha = 0.12f), shape = MaterialTheme.shapes.extraSmall) {
+        Text(qrTypeLabel(type), Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium, color = color)
+    }
+}
 
-    Surface(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        modifier = modifier
-            .height(110.dp)
-            .graphicsLayer(scaleX = scale, scaleY = scale),
-        shape = RoundedCornerShape(18.dp),
-        color = backgroundColor,
-        shadowElevation = 4.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = Color.White,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.QrCode2,
-                        contentDescription = null,
-                        tint = backgroundColor,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+@Composable
+fun QRHistoryItem(qr: QrEntity, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val title = remember(qr.label, qr.rawValue, qr.type) { qrDisplayTitle(qr) }
+    val preview = remember(qr.rawValue, qr.type) { qrContentPreview(qr) }
+    Surface(onClick = onClick, modifier = modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+        shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            QrTypeIcon(qr.type)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(preview, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${qrTypeLabel(qr.type)} · ${TimeUtils.formatRelativeTime(qr.lastUsedAt)}",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    lineHeight = 20.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            if (qr.isPinned) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
         }
     }
 }
 
 @Composable
-fun RecentScanCard(
-    title: String,
-    time: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit = {}
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (isPressed) 0.98f else 1f, label = "scale")
-
-    Surface(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        modifier = modifier
-            .fillMaxWidth()
-            .height(64.dp)
-            .graphicsLayer(scaleX = scale, scaleY = scale),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 0.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCode2,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(22.dp)
-                )
+fun PinnedQrCard(qr: QrEntity, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(onClick = onClick, modifier = modifier.width(224.dp),
+        shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                QrTypeIcon(qr.type)
+                Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-                )
-            }
-            Text(
-                text = time,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                fontSize = 11.sp,
-                modifier = Modifier.padding(start = 8.dp)
-            )
+            Text(qrDisplayTitle(qr), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(qrTypeLabel(qr.type), style = MaterialTheme.typography.labelMedium, color = qrTypeColor(qr.type))
         }
-    }
-}
-
-@Composable
-fun GlassPanel(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    Box(
-        modifier = modifier.fillMaxSize()
-    ) {
-        content()
     }
 }

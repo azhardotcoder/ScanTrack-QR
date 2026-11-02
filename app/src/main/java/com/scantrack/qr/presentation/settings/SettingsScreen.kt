@@ -1,178 +1,210 @@
 package com.scantrack.qr.presentation.settings
 
-import androidx.compose.foundation.background
+import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.Vibration
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.scantrack.qr.presentation.components.SectionHeader
+import com.scantrack.qr.presentation.components.*
+import com.scantrack.qr.presentation.utils.ActionUtils
 
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel) {
     val hapticEnabled by viewModel.hapticEnabled.collectAsStateWithLifecycle()
     val darkMode by viewModel.darkMode.collectAsStateWithLifecycle()
-    
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var showClearHistoryDialog by remember { mutableStateOf(false) }
-
-    LaunchedEffect(viewModel) {
-        viewModel.eventFlow.collect { message ->
-            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+    val context = LocalContext.current
+    val versionName = remember(context) {
+        try {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
+        } catch (_: PackageManager.NameNotFoundException) {
+            "Unknown"
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center
+    LaunchedEffect(viewModel) {
+        viewModel.eventFlow.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    SettingsScreenContent(
+        hapticEnabled = hapticEnabled,
+        darkMode = darkMode,
+        versionName = versionName,
+        onHapticChanged = viewModel::toggleHaptic,
+        onThemeSelected = viewModel::setDarkMode,
+        onClearHistory = viewModel::clearHistory,
+        onOpenSource = {
+            ActionUtils.openQrContent(context, "https://github.com/azhardotcoder/ScanTrack-QR")
+        }
+    )
+}
+
+@Composable
+fun SettingsScreenContent(
+    hapticEnabled: Boolean,
+    darkMode: String,
+    versionName: String,
+    onHapticChanged: (Boolean) -> Unit,
+    onThemeSelected: (String) -> Unit,
+    onClearHistory: () -> Unit,
+    onOpenSource: () -> Unit
+) {
+    var showClearHistoryDialog by rememberSaveable { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier.widthIn(max = 840.dp).fillMaxSize().testTag("settings-list"),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // --- SCANNER SETTINGS ---
-        SectionHeader(title = "Scanner")
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        SettingsCard {
-            SettingsToggleRow(
-                title = "Haptic Feedback",
-                subtitle = "Vibrate on successful scan",
-                icon = Icons.Default.Vibration,
-                checked = hapticEnabled,
-                onCheckedChange = { viewModel.toggleHaptic(it) }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // --- APPEARANCE ---
-        SectionHeader(title = "Appearance")
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        SettingsCard {
-            DarkModeSelector(
-                selectedMode = darkMode,
-                onModeSelected = { viewModel.setDarkMode(it) }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // --- DATA MANAGEMENT ---
-        SectionHeader(title = "Data Management")
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        SettingsCard {
-            SettingsActionRow(
-                title = "Clear Scan History",
-                subtitle = "Permanently delete all saved scans",
-                icon = Icons.Default.DeleteSweep,
-                textColor = MaterialTheme.colorScheme.error,
-                onClick = { showClearHistoryDialog = true }
-            )
+            item(key = "heading") { AppTopBar("Settings", "Make ScanTrack feel like yours.") }
+            item(key = "appearance-heading") { SectionHeader("Appearance") }
+            item(key = "appearance") {
+                PremiumCard {
+                    SettingsHeading(
+                        title = "App theme",
+                        subtitle = "Choose a look, or follow your device.",
+                        icon = Icons.Outlined.Palette
+                    )
+                    Column(Modifier.fillMaxWidth().selectableGroup()) {
+                        listOf(
+                            Triple("SYSTEM", "System", Icons.Outlined.BrightnessAuto),
+                            Triple("LIGHT", "Light", Icons.Outlined.LightMode),
+                            Triple("DARK", "Dark", Icons.Outlined.DarkMode)
+                        ).forEach { (mode, label, icon) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                                    .selectable(
+                                        selected = darkMode == mode,
+                                        onClick = { onThemeSelected(mode) },
+                                        role = Role.RadioButton
+                                    )
+                                    .defaultMinSize(minHeight = 52.dp)
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(label, Modifier.weight(1f).padding(start = 16.dp),
+                                    style = MaterialTheme.typography.bodyLarge)
+                                RadioButton(selected = darkMode == mode, onClick = null)
+                            }
+                        }
+                    }
+                }
+            }
+            item(key = "scanner-heading") { SectionHeader("Scanner") }
+            item(key = "scanner") {
+                PremiumCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .toggleable(
+                                value = hapticEnabled,
+                                onValueChange = onHapticChanged,
+                                role = Role.Switch
+                            )
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.Vibration, null,
+                            tint = MaterialTheme.colorScheme.primary)
+                        Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                            Text("Haptic feedback", style = MaterialTheme.typography.titleSmall)
+                            Text("A gentle vibration for scans and actions.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = hapticEnabled, onCheckedChange = null)
+                    }
+                    Text(
+                        "Animations follow your device's motion settings.",
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            item(key = "data-heading") { SectionHeader("Your data") }
+            item(key = "data") {
+                PremiumCard {
+                    SettingsActionRow(
+                        title = "Clear scan history",
+                        subtitle = "Delete all scans, including pinned items.",
+                        icon = Icons.Outlined.DeleteSweep,
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = { showClearHistoryDialog = true }
+                    )
+                }
+            }
+            item(key = "about-heading") { SectionHeader("About") }
+            item(key = "about") {
+                PremiumCard {
+                    SettingsHeading(
+                        title = "ScanTrack QR",
+                        subtitle = "Version $versionName",
+                        icon = Icons.Outlined.QrCode2
+                    )
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                    SettingsHeading(
+                        title = "Private by design",
+                        subtitle = "Scanning works offline. Your scan history is stored on this device and excluded from cloud backup. Opening or sharing a QR sends its content to the app you choose.",
+                        icon = Icons.Outlined.PrivacyTip
+                    )
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                    SettingsActionRow(
+                        title = "Source code",
+                        subtitle = "View the ScanTrack QR project on GitHub.",
+                        icon = Icons.Outlined.Code,
+                        onClick = onOpenSource
+                    )
+                }
+            }
         }
     }
 
     if (showClearHistoryDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearHistoryDialog = false },
-            title = { Text("Clear All History?") },
-            text = { Text("This will permanently delete all saved scans, including your pinned and frequent items. This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearHistory()
-                        showClearHistoryDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Clear All")
-                }
+        ConfirmationDialog(
+            title = "Clear all scan history?",
+            message = "All saved scans, including pinned and frequent items, will be permanently deleted. This cannot be undone.",
+            confirmLabel = "Clear all history",
+            onConfirm = {
+                showClearHistoryDialog = false
+                onClearHistory()
             },
-            dismissButton = {
-                TextButton(onClick = { showClearHistoryDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { showClearHistoryDialog = false }
         )
     }
 }
 
 @Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(content = content)
-    }
-}
-
-@Composable
-private fun SettingsToggleRow(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(Color(0xFF2563EB).copy(alpha = 0.1f), RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(20.dp))
+private fun SettingsHeading(title: String, subtitle: String, icon: ImageVector) {
+    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 2.dp).size(24.dp))
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp))
         }
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
-            Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-            )
-        )
     }
 }
 
@@ -181,79 +213,23 @@ private fun SettingsActionRow(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    textColor: Color = Color.Black.copy(alpha = 0.8f),
+    tint: Color = MaterialTheme.colorScheme.onSurface,
     onClick: () -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        color = Color.Transparent
-    ) {
+    Surface(onClick = onClick, color = Color.Transparent) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            Modifier.fillMaxWidth().defaultMinSize(minHeight = 64.dp).padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = if (textColor != MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f) && textColor != Color.Black.copy(alpha = 0.8f)) textColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+            Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, color = tint)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp))
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                val baseColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = if (textColor != Color.Black.copy(alpha = 0.8f)) textColor else baseColor)
-                Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-            }
+            Icon(Icons.Outlined.ChevronRight, null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DarkModeSelector(
-    selectedMode: String,
-    onModeSelected: (String) -> Unit
-) {
-    Column(modifier = Modifier.padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color(0xFFF59E0B).copy(alpha = 0.1f), RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Palette, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(20.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Text("App Theme", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
-        }
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf("SYSTEM", "LIGHT", "DARK").forEach { mode ->
-                FilterChip(
-                    selected = selectedMode == mode,
-                    onClick = { onModeSelected(mode) },
-                    label = { Text(mode.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 12.sp) },
-                    modifier = Modifier.weight(1f),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = Color.White,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    border = null,
-                    shape = RoundedCornerShape(8.dp)
-                )
-            }
-        }
-    }
-}
-

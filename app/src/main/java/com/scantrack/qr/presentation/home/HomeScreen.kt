@@ -1,227 +1,162 @@
 package com.scantrack.qr.presentation.home
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
-import com.scantrack.qr.presentation.theme.ScanTrackQRTheme
-import com.scantrack.qr.R
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.scantrack.qr.data.local.entity.QrEntity
 import com.scantrack.qr.presentation.components.*
+import com.scantrack.qr.presentation.theme.ScanTrackQRTheme
 import com.scantrack.qr.presentation.utils.ActionUtils
 
 @Composable
-fun HomeScreen(
-    viewModel: HomeViewModel
-) {
-    val pinnedQrs by viewModel.pinnedQrs.collectAsStateWithLifecycle()
-    val quickAccessQrs by viewModel.quickAccessQrs.collectAsStateWithLifecycle()
-    val recentScans by viewModel.recentQrs.collectAsStateWithLifecycle()
-    
-    var selectedQrForDetail by remember { mutableStateOf<QrEntity?>(null) }
+fun HomeScreen(viewModel: HomeViewModel, onScan: () -> Unit, onGalleryScan: () -> Unit, onHistory: () -> Unit) {
+    val pinned by viewModel.pinnedQrs.collectAsStateWithLifecycle()
+    val frequent by viewModel.quickAccessQrs.collectAsStateWithLifecycle()
+    val recent by viewModel.recentQrs.collectAsStateWithLifecycle()
+    var selected by remember { mutableStateOf<QrEntity?>(null) }
     val context = LocalContext.current
 
-    // ModernBackground is handled in MainActivity Scaffold
-    HomeScreenContent(
-        pinnedQrs = pinnedQrs,
-        quickAccessQrs = quickAccessQrs,
-        recentScans = recentScans,
-        onQrClick = { selectedQrForDetail = it }
-    )
-
-    // Details sheet logic remains same
-    if (selectedQrForDetail != null) {
-        QrDetailSheet(
-            qr = selectedQrForDetail,
-            onDismiss = { selectedQrForDetail = null },
-            onPinToggle = { viewModel.togglePin(it) },
-            onRename = { entity, label -> viewModel.renameQr(entity, label) },
-            onDelete = { 
-                viewModel.deleteQr(it)
-                selectedQrForDetail = null
-            },
-            onOpen = { 
-                viewModel.markAsUsed(it)
-                ActionUtils.openQrContent(context, it.rawValue)
-            }
-        )
+    HomeScreenContent(pinned, frequent, recent, { selected = it }, onScan, onGalleryScan, onHistory)
+    selected?.let { selectedQr ->
+        val current = (pinned + frequent + recent).firstOrNull { it.id == selectedQr.id } ?: selectedQr
+        QrDetailSheet(qr = current, onDismiss = { selected = null },
+            onPinToggle = viewModel::togglePin, onRename = viewModel::renameQr,
+            onDelete = { viewModel.deleteQr(it); selected = null },
+            onOpen = { viewModel.markAsUsed(it); ActionUtils.openQrContent(context, it.rawValue) })
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreenContent(
-    pinnedQrs: List<QrEntity>,
-    quickAccessQrs: List<QrEntity>,
-    recentScans: List<QrEntity>,
-    onQrClick: (QrEntity) -> Unit
+    pinnedQrs: List<QrEntity>, quickAccessQrs: List<QrEntity>, recentScans: List<QrEntity>,
+    onQrClick: (QrEntity) -> Unit, onScan: () -> Unit = {}, onGalleryScan: () -> Unit = {}, onHistory: () -> Unit = {}
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)
-    ) {
-        // --- TOP BRANDING (Centered, Clean) ---
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center
+    val quick = remember(quickAccessQrs, pinnedQrs) {
+        val pinnedIds = pinnedQrs.map { it.id }.toSet()
+        quickAccessQrs.asSequence().filter { it.usageCount >= 3 && it.id !in pinnedIds }.take(2).toList()
+    }
+    val recent = remember(recentScans, quick) {
+        val quickIds = quick.map { it.id }.toSet()
+        recentScans.asSequence().filter { it.id !in quickIds }.take(8).toList()
+    }
+    val empty = pinnedQrs.isEmpty() && quickAccessQrs.isEmpty() && recentScans.isEmpty()
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier.widthIn(max = AppSpacing.ContentWidth).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = AppSpacing.Page, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                text = "ScanTrack QR",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-            )
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // --- PINNED QR SECTION (Horizontal Scroll) ---
-        if (pinnedQrs.isNotEmpty()) {
-            SectionHeader(title = "Pinned QR")
-            Spacer(modifier = Modifier.height(12.dp))
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(end = 12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(pinnedQrs) { qr ->
-                    PinnedQrCard(
-                        title = qr.label ?: "Label",
-                        iconColor = getIconColorForType(qr.type),
-                        onClick = { onQrClick(qr) }
-                    )
+            item("header") { AppTopBar("ScanTrack QR", "Everything you scan, beautifully organized.") }
+            item("scan") { ScanHero(onScan, onGalleryScan) }
+            if (empty) {
+                item("empty") {
+                    EmptyState("Your next scan starts here", "Links, payments, Wi-Fi and more. Your scans stay organized on this device.", Icons.Outlined.QrCode2)
+                }
+            } else {
+                item("pinned_title") { SectionHeader("Pinned") }
+                item("pinned") {
+                    if (pinnedQrs.isEmpty()) {
+                        PremiumCard {
+                            Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Icon(Icons.Outlined.PushPin, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Keep the essentials close", style = MaterialTheme.typography.titleSmall)
+                                    Text("Open a scan and pin it for easy access.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(pinnedQrs, key = { it.id }) { qr -> PinnedQrCard(qr, { onQrClick(qr) }) }
+                        }
+                    }
+                }
+                if (quick.isNotEmpty()) {
+                    item("quick_title") { SectionHeader("Quick access") }
+                    items(quick, key = { "quick_${it.id}" }) { qr -> QRHistoryItem(qr, { onQrClick(qr) }) }
+                }
+                item("recent_title") {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        SectionHeader("Recent activity", Modifier.weight(1f))
+                        TextButton(onClick = onHistory) { Text("View all") }
+                    }
+                }
+                items(recent, key = { "recent_${it.id}" }) { qr -> QRHistoryItem(qr, { onQrClick(qr) }) }
+                if (recent.isEmpty()) item("recent_hint") {
+                    Text("Your frequently used scans are in Quick access.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-
-        // --- QUICK ACCESS SECTION (Two big cards) ---
-        if (quickAccessQrs.isNotEmpty()) {
-            SectionHeader(title = "Quick Access")
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                quickAccessQrs.take(2).forEachIndexed { index, qr ->
-                    val color = if (index == 0) Color(0xFF2563EB) else Color(0xFF10B981)
-                    QuickAccessCard(
-                        title = qr.label ?: "QR Code",
-                        backgroundColor = color,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onQrClick(qr) }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-
-        // --- RECENT SCANS SECTION (Vertical Stack) ---
-        if (recentScans.isNotEmpty()) {
-            SectionHeader(title = "Recent Scans")
-            Spacer(modifier = Modifier.height(12.dp))
-
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(recentScans) { scan ->
-                    RecentScanCard(
-                        title = scan.label ?: "QR Code",
-                        time = "Last used: " + formatTime(scan.lastUsedAt),
-                        onClick = { onQrClick(scan) }
-                    )
-                }
-            }
-        } else if (pinnedQrs.isEmpty() && quickAccessQrs.isEmpty()) {
-            EmptyHomeState()
         }
     }
 }
 
 @Composable
-private fun EmptyHomeState() {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(top = 80.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = CircleShape,
-                modifier = Modifier.size(80.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Settings,
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
+private fun ScanHero(onScan: () -> Unit, onGalleryScan: () -> Unit) {
+    val reduceMotion = LocalReduceMotion.current
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val iconScale by animateFloatAsState(
+        targetValue = if (entered || reduceMotion) 1f else 0.9f,
+        animationSpec = tween(if (reduceMotion) 0 else 220), label = "Scan icon entrance"
+    )
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            BoxWithConstraints {
+                val stackedHeading = maxWidth < 400.dp && LocalDensity.current.fontScale > 1.4f
+                val heading: @Composable () -> Unit = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("One scan. All the details.", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("Point your camera or choose a photo.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+                val icon: @Composable () -> Unit = {
+                    Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(40.dp).graphicsLayer(scaleX = iconScale, scaleY = iconScale), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                if (stackedHeading) {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { icon(); heading() }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        icon()
+                        Box(Modifier.weight(1f)) { heading() }
+                    }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            Text("No scans found", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
-            Text("Tap the center button to start", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f), fontSize = 14.sp)
+            BoxWithConstraints {
+                if (maxWidth >= 480.dp) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PrimaryActionButton("Scan QR", onScan, Modifier.weight(1f), Icons.Outlined.QrCodeScanner)
+                        SecondaryActionButton("Gallery scan", onGalleryScan, Modifier.weight(1f), Icons.Outlined.PhotoLibrary)
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PrimaryActionButton("Scan QR", onScan, Modifier.fillMaxWidth(), Icons.Outlined.QrCodeScanner)
+                        SecondaryActionButton("Gallery scan", onGalleryScan, Modifier.fillMaxWidth(), Icons.Outlined.PhotoLibrary)
+                    }
+                }
+            }
         }
     }
 }
 
-private fun getIconColorForType(type: String): Color = when (type) {
-    "URL" -> Color(0xFF2563EB)
-    "PAYMENT" -> Color(0xFF10B981)
-    "WIFI" -> Color(0xFFF59E0B)
-    else -> Color(0xFF64748B)
-}
-
-private fun formatTime(timestamp: Long): String = com.scantrack.qr.presentation.utils.TimeUtils.formatRelativeTime(timestamp)
-
-@Preview(showBackground = true, backgroundColor = 0xFF0F172A)
+@Preview(showBackground = true, widthDp = 360)
 @Composable
-private fun HomeScreenPreview() {
-    ScanTrackQRTheme(darkTheme = true) {
-        val sampleList = listOf(
-            QrEntity(
-                id = 1,
-                rawValue = "https://github.com",
-                label = "GitHub Profile",
-                type = "URL",
-                usageCount = 12,
-                isPinned = true
-            ),
-            QrEntity(
-                id = 2,
-                rawValue = "upi://pay?pa=store@upi&pn=Store",
-                label = "Coffee Shop UPI",
-                type = "PAYMENT",
-                usageCount = 8,
-                isPinned = true
-            )
-        )
-        HomeScreenContent(
-            pinnedQrs = sampleList,
-            quickAccessQrs = sampleList,
-            recentScans = sampleList,
-            onQrClick = {}
-        )
-    }
-}
+private fun HomeLightPreview() = ScanTrackQRTheme(false) { HomeScreenContent(emptyList(), emptyList(), emptyList(), {}) }
+
+@Preview(showBackground = true, widthDp = 360)
+@Composable
+private fun HomeDarkPreview() = ScanTrackQRTheme(true) { HomeScreenContent(emptyList(), emptyList(), emptyList(), {}) }
