@@ -131,5 +131,56 @@ class UpiPaymentParserTest {
         assertFalse(result.isValid)
         assertTrue(result.validationError?.contains("expected strict upi://pay") == true)
     }
-}
 
+    @Test
+    fun parse_personalUpiQr_identifiesP2P_preservesOriginal() {
+        val raw = "upi://pay?pa=friend@okhdfcbank&pn=John%20Doe&am=100.00&cu=INR"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertTrue(result.isValid)
+        assertEquals(raw, result.originalUri)
+        assertFalse(result.isMerchant)
+        assertEquals("friend@okhdfcbank", result.payeeVpa)
+        assertEquals("John Doe", result.payeeName)
+        assertEquals("100.00", result.amount)
+    }
+
+    @Test
+    fun parse_merchantStaticUpiQr_withMode01_identifiesMerchantAndPreservesParameters() {
+        val raw = "upi://pay?pa=merchant@icici&pn=Corner%20Store&mc=5411&mode=01&orgid=180001"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertTrue(result.isValid)
+        assertEquals(raw, result.originalUri)
+        assertTrue(result.isMerchant)
+        assertEquals("5411", result.merchantCode)
+        assertEquals("01", result.mode)
+        assertEquals("180001", result.orgId)
+    }
+
+    @Test
+    fun parse_merchantDynamicPosQr_withMode02AndTid_preservesAllOriginalParameters() {
+        val raw = "upi://pay?pa=pos@hdfcbank&pn=Retail%20Outlet&mc=5311&tr=TXN123456789&tid=TERM001&mode=02&am=499.00&cu=INR"
+        val result = UpiPaymentParser.parse(raw)
+
+        assertTrue(result.isValid)
+        assertEquals(raw, result.originalUri)
+        assertTrue(result.isMerchant)
+        assertEquals("5311", result.merchantCode)
+        assertEquals("TXN123456789", result.transactionRef)
+        assertEquals("TERM001", result.terminalId)
+        assertEquals("02", result.mode)
+        assertEquals("499.00", result.amount)
+    }
+
+    @Test
+    fun parse_merchantSignedQr_withSignAndOrgid_neverStripsSignatureOrAltersUri() {
+        val raw = "upi://pay?pa=secure@axisbank&pn=SuperStore&mc=5499&mode=02&orgid=189999&sign=MEYCIQC3eXSampleSignatureData1234567890abcdef=="
+        val result = UpiPaymentParser.parse(raw)
+
+        assertTrue(result.isValid)
+        assertEquals(raw, result.originalUri)
+        assertTrue(result.isMerchant)
+        assertEquals("189999", result.orgId)
+    }
+}

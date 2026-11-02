@@ -229,6 +229,23 @@ private fun UpiDetailCard(
                 Text(text = upi.transactionRef, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
             }
 
+            if (upi.isMerchant) {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Merchant Store QR: If payment fails in your UPI app, scan directly using Google Pay or PhonePe scanner per bank fraud prevention rules.",
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+
             Spacer(Modifier.height(14.dp))
             Button(
                 onClick = onPayClick,

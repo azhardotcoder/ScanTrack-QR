@@ -12,8 +12,7 @@ import android.net.NetworkRequest
 import android.net.Uri
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import com.scantrack.qr.data.parser.QrTypeDetector
@@ -21,6 +20,8 @@ import com.scantrack.qr.data.parser.UpiPaymentParser
 import com.scantrack.qr.data.parser.WiFiQrParser
 
 object ActionUtils {
+
+    private const val TAG_UPI = "ScanTrack_UPI"
 
     /**
      * Unified handler to safely dispatch actions based on the detected QR type.
@@ -58,6 +59,7 @@ object ActionUtils {
     fun openUpiPayment(context: Context, originalUpiUri: String) {
         val upiData = UpiPaymentParser.parse(originalUpiUri)
         if (!upiData.isValid) {
+            Log.w(TAG_UPI, "UPI payment validation failed: ${upiData.validationError}")
             Toast.makeText(
                 context,
                 upiData.validationError ?: "Invalid UPI payment format",
@@ -65,6 +67,21 @@ object ActionUtils {
             ).show()
             return
         }
+
+        // Privacy-safe diagnostic logging: never logs customer usernames, account tokens, or full VPA
+        val sanitizedVpaDomain = upiData.payeeVpa?.let { vpa ->
+            val atIndex = vpa.indexOf('@')
+            if (atIndex != -1 && atIndex < vpa.length - 1) {
+                "***@" + vpa.substring(atIndex + 1)
+            } else {
+                "***"
+            }
+        } ?: "unknown"
+
+        Log.i(
+            TAG_UPI,
+            "Dispatching payment intent: [isMerchant=${upiData.isMerchant}, mode=${upiData.mode ?: "standard"}, vpaDomain=$sanitizedVpaDomain, hasAmount=${upiData.amount != null}, currency=${upiData.currency ?: "INR"}]"
+        )
 
         try {
             // Preserve the original payment URI completely
@@ -74,9 +91,18 @@ object ActionUtils {
             val chooser = Intent.createChooser(paymentIntent, "Pay via UPI")
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(chooser)
+
+            // Authoritative confirmation notice: Inform user to complete payment in external app
+            Toast.makeText(
+                context,
+                "Opening payment app... Complete transaction in your UPI app",
+                Toast.LENGTH_SHORT
+            ).show()
         } catch (e: ActivityNotFoundException) {
+            Log.e(TAG_UPI, "No UPI payment application installed on device")
             Toast.makeText(context, "No UPI payment app found (e.g. Google Pay, PhonePe, Paytm)", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
+            Log.e(TAG_UPI, "Failed to launch payment app: ${e.message}")
             Toast.makeText(context, "Failed to launch payment app: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }

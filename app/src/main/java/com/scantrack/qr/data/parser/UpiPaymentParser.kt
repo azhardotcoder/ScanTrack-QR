@@ -19,6 +19,10 @@ data class UpiPaymentData(
     val transactionRef: String? = null,
     val merchantCode: String? = null,
     val transactionNote: String? = null,
+    val mode: String? = null,
+    val orgId: String? = null,
+    val terminalId: String? = null,
+    val isMerchant: Boolean = false,
     val isValid: Boolean = false,
     val validationError: String? = null
 )
@@ -67,7 +71,7 @@ object UpiPaymentParser {
             }
 
             val queryParams = mutableMapOf<String, String>()
-            val criticalParams = setOf("pa", "am", "cu", "tr", "mc", "pn")
+            val criticalParams = setOf("pa", "am", "cu", "tr", "mc", "pn", "mode")
 
             val pairs = queryString.split('&')
             for (pair in pairs) {
@@ -102,6 +106,10 @@ object UpiPaymentParser {
             val tr = queryParams["tr"]
             val mc = queryParams["mc"]
             val tn = queryParams["tn"]
+            val mode = queryParams["mode"]
+            val orgId = queryParams["orgid"]
+            val tid = queryParams["tid"]
+            val isMerchant = !mc.isNullOrBlank() || mode == "01" || mode == "02" || !tid.isNullOrBlank() || !orgId.isNullOrBlank()
 
             // Strict VPA (Virtual Payment Address) validation: name@handle
             // Must contain exactly one '@', no whitespace, and valid identifier characters
@@ -120,6 +128,10 @@ object UpiPaymentParser {
                     transactionRef = tr,
                     merchantCode = mc,
                     transactionNote = tn,
+                    mode = mode,
+                    orgId = orgId,
+                    terminalId = tid,
+                    isMerchant = isMerchant,
                     isValid = false,
                     validationError = if (pa.isNullOrBlank()) "Missing payee UPI ID (pa)" else "Malformed payee UPI ID: $pa"
                 )
@@ -186,6 +198,10 @@ object UpiPaymentParser {
                 transactionRef = tr,
                 merchantCode = mc,
                 transactionNote = tn,
+                mode = mode,
+                orgId = orgId,
+                terminalId = tid,
+                isMerchant = isMerchant,
                 isValid = true
             )
         } catch (e: Exception) {
